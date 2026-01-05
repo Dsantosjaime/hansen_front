@@ -1,18 +1,36 @@
 import React from "react";
-import { Stack } from "expo-router";
-import { useThemeColor } from "@/hooks/use-theme-color";
+import { Redirect, Stack, useSegments } from "expo-router";
+import { Provider } from "react-redux";
+import { store } from "@/store/store";
+import { useAppSelector } from "@/store/hooks";
+import { AppHeader } from "@/components/navigation/AppHeader";
+
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const token = useAppSelector((s) => s.auth.token);
+  const segments = useSegments();
+  const isOnAuthRoute = segments[0] === "auth";
+
+  if (!token && !isOnAuthRoute) {
+    return <Redirect href="/auth" />;
+  }
+
+  if (token && isOnAuthRoute) {
+    return <Redirect href="/" />;
+  }
+
+  return <>{children}</>;
+}
 
 export default function RootLayout() {
-  const backgroundColor = useThemeColor({}, "background");
-  const textColor = useThemeColor({}, "text");
-
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor },
-        headerTintColor: textColor,
-        headerTitleStyle: { fontWeight: "600" },
-      }}
-    />
+    <Provider store={store}>
+      <AuthGate>
+        <Stack
+          screenOptions={{
+            header: (props) => <AppHeader {...props} />,
+          }}
+        />
+      </AuthGate>
+    </Provider>
   );
 }
