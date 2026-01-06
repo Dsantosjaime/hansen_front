@@ -1,14 +1,7 @@
-import React, { memo, useMemo, useState, useCallback } from "react";
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+// src/components/navigation/HeaderNavMenu.web.tsx
+import React, { memo, useCallback, useMemo, useState } from "react";
+import * as Menubar from "@radix-ui/react-menubar";
 import { Href, router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { useThemeColor } from "@/hooks/use-theme-color";
 
 type NavItem = { label: string; href: string };
@@ -17,18 +10,15 @@ type NavCategory =
   | { key: string; label: string; type: "link"; href: string };
 
 export const HeaderNavMenu = memo(function HeaderNavMenu() {
-  const bg = useThemeColor({}, "background");
-  const text = useThemeColor({}, "text");
-
-  const chipBg = useThemeColor(
-    { light: "#F3F4F6", dark: "#111827" },
+  const headerBg = useThemeColor(
+    { light: "#1F536E", dark: "#1F536E" }, // [PLACEHOLDER]
     "background"
   );
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
+  const headerText = useThemeColor(
+    { light: "#FFFFFF", dark: "#FFFFFF" },
+    "text"
+  );
 
-  const [openKey, setOpenKey] = useState<string | null>(null);
-
-  // Définition data-driven (facile à maintenir)
   const nav = useMemo<NavCategory[]>(
     () => [
       {
@@ -36,8 +26,8 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
         label: "Administration",
         type: "dropdown",
         items: [
-          { label: "Roles", href: "/admin/roles" }, // [PLACEHOLDER] routes à créer
-          { label: "Utilisateurs", href: "/admin/users" }, // [PLACEHOLDER]
+          { label: "Roles", href: "/admin/roles" },
+          { label: "Utilisateurs", href: "/admin/users" },
         ],
       },
       {
@@ -45,8 +35,8 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
         label: "Suivi",
         type: "dropdown",
         items: [
-          { label: "Groupes / Sous-Groupes", href: "/suivi/groups" }, // [PLACEHOLDER]
-          { label: "Contacts", href: "/suivi/contacts" }, // [PLACEHOLDER]
+          { label: "Groupes / Sous-Groupes", href: "/suivi/groups" },
+          { label: "Contacts", href: "/contacts" },
         ],
       },
       {
@@ -54,196 +44,201 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
         label: "Email",
         type: "dropdown",
         items: [
-          { label: "Templates d'emails", href: "/email/templates" }, // [PLACEHOLDER]
-          { label: "Emails", href: "/email/emails" }, // [PLACEHOLDER]
+          { label: "Templates d'emails", href: "/email/templates" },
+          { label: "Emails", href: "/email/emails" },
         ],
       },
       {
         key: "plugin",
         label: "Plugin",
         type: "link",
-        href: "/plugin/configuration", // [PLACEHOLDER]
+        href: "/plugin/configuration",
       },
       {
         key: "export",
         label: "Export",
         type: "link",
-        href: "/export/contacts", // [PLACEHOLDER]
+        href: "/export/contacts",
       },
     ],
     []
   );
 
-  const closeMenu = useCallback(() => setOpenKey(null), []);
+  const [openKey, setOpenKey] = useState<string>("");
 
-  const onNavigate = useCallback((href: Href) => {
-    setOpenKey(null);
-    router.push(href);
+  const onNavigate = useCallback((href: string) => {
+    setOpenKey("");
+    router.push(href as Href);
   }, []);
-
-  const openCategory = useCallback((key: string) => setOpenKey(key), []);
-
-  const openedCategory = useMemo(() => {
-    if (!openKey) return null;
-    return nav.find(
-      (c) => c.key === openKey && c.type === "dropdown"
-    ) as Extract<NavCategory, { type: "dropdown" }> | null;
-  }, [nav, openKey]);
 
   return (
     <>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.row}
-      >
-        {nav.map((cat) => {
-          const isOpen = openKey === cat.key;
-
-          if (cat.type === "link") {
-            return (
-              <Pressable
-                key={cat.key}
-                onPress={() => onNavigate(cat.href as Href)}
-                style={({ pressed }) => [
-                  styles.chip,
-                  {
-                    backgroundColor: chipBg,
-                    borderColor: border,
-                    opacity: pressed ? 0.7 : 1,
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.chipText, { color: text }]}
-                  numberOfLines={1}
-                >
-                  {cat.label}
-                </Text>
-              </Pressable>
-            );
+      <style>
+        {`
+          .hm-root { 
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            overflow-x: auto;
+            padding: 0 8px;
+            -webkit-overflow-scrolling: touch;
+            background: ${headerBg};
           }
 
-          return (
-            <Pressable
-              key={cat.key}
-              onPress={() => openCategory(cat.key)}
-              style={({ pressed }) => [
-                styles.chip,
-                {
-                  backgroundColor: chipBg,
-                  borderColor: border,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              <Text
-                style={[styles.chipText, { color: text }]}
-                numberOfLines={1}
-              >
-                {cat.label}
-              </Text>
-              <Ionicons
-                name={isOpen ? "chevron-up" : "chevron-down"}
-                size={14}
-                color={text}
-                style={{ marginLeft: 6 }}
-              />
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+          /**
+           * Trigger: underline sous le texte (sans déplacer)
+           * On utilise ::after en absolute => pas de layout shift.
+           */
+          .hm-trigger {
+            height: 48px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0;
+            margin: 0;
 
-      {/* Dropdown (liste déroulante scrollable) */}
-      <Modal
-        visible={!!openedCategory}
-        transparent
-        animationType="fade"
-        onRequestClose={closeMenu}
-      >
-        <Pressable style={styles.backdrop} onPress={closeMenu} />
-        <View
-          style={[styles.menu, { backgroundColor: bg, borderColor: border }]}
+            background: transparent;
+            border: none;
+            color: ${headerText};
+
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            user-select: none;
+
+            position: relative; /* pour ::after */
+          }
+
+          .hm-trigger::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: #FFFFFF;
+
+            /* Positionne la ligne sous le texte (et pas en bas du header) */
+            bottom: 14px; /* [PLACEHOLDER] ajuste (12-16) selon ton header */
+            
+            opacity: 0;
+            transform: scaleX(0.6);
+            transform-origin: left;
+            transition: opacity 120ms ease, transform 120ms ease;
+            pointer-events: none;
+          }
+
+          .hm-trigger:hover::after,
+          .hm-trigger[data-state="open"]::after {
+            opacity: 1;
+            transform: scaleX(1);
+          }
+
+          .hm-content {
+            background: ${headerBg};
+            border: none;
+            border-radius: 0;      /* coins non arrondis */
+            padding: 6px 0;
+            min-width: 220px;
+            box-shadow: none;      /* sobre, pas d'encadré */
+          }
+
+          /**
+           * Items dropdown: underline sous le texte (sans déplacer)
+           */
+          .hm-item {
+            padding: 10px 14px;
+            color: ${headerText};
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            outline: none;
+
+            background: transparent;
+            position: relative; /* pour ::after */
+          }
+
+          .hm-item::after {
+            content: "";
+            position: absolute;
+            left: 14px;           /* aligné avec le padding gauche */
+            right: 14px;          /* aligné avec le padding droite */
+            height: 2px;
+            background: #FFFFFF;
+
+            /* Sous le texte à l'intérieur de l'item */
+            bottom: 6px;          /* [PLACEHOLDER] ajuste (4-8) selon ton padding */
+
+            opacity: 0;
+            transform: scaleX(0.6);
+            transform-origin: left;
+            transition: opacity 120ms ease, transform 120ms ease;
+            pointer-events: none;
+          }
+
+          .hm-item:hover::after,
+          .hm-item[data-highlighted]::after {
+            opacity: 1;
+            transform: scaleX(1);
+          }
+        `}
+      </style>
+
+      <div onMouseLeave={() => setOpenKey("")}>
+        <Menubar.Root
+          className="hm-root"
+          value={openKey}
+          onValueChange={setOpenKey}
         >
-          <Text style={[styles.menuTitle, { color: text }]} numberOfLines={1}>
-            {openedCategory?.label}
-          </Text>
+          {nav.map((cat) => {
+            if (cat.type === "link") {
+              return (
+                <Menubar.Menu key={cat.key} value={cat.key}>
+                  <Menubar.Trigger
+                    className="hm-trigger"
+                    onClick={() => onNavigate(cat.href)}
+                    onMouseEnter={() => setOpenKey("")}
+                  >
+                    {cat.label}
+                  </Menubar.Trigger>
+                </Menubar.Menu>
+              );
+            }
 
-          <ScrollView
-            style={styles.menuList}
-            contentContainerStyle={styles.menuListContent}
-          >
-            {openedCategory?.items.map((item) => (
-              <Pressable
-                key={item.href}
-                onPress={() => onNavigate(item.href as Href)}
-                style={({ pressed }) => [
-                  styles.menuItem,
-                  { opacity: pressed ? 0.6 : 1 },
-                ]}
-              >
-                <Text style={[styles.menuItemText, { color: text }]}>
-                  {item.label}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      </Modal>
+            return (
+              <Menubar.Menu key={cat.key} value={cat.key}>
+                <Menubar.Trigger
+                  className="hm-trigger"
+                  onMouseEnter={() => setOpenKey(cat.key)}
+                >
+                  {cat.label}
+                  <span style={{ opacity: 0.9 }}>▾</span>
+                </Menubar.Trigger>
+
+                <Menubar.Portal>
+                  <Menubar.Content
+                    className="hm-content"
+                    align="start"
+                    side="bottom"
+                    sideOffset={0} // collé au bas de l’item
+                  >
+                    {cat.items.map((item) => (
+                      <Menubar.Item
+                        key={item.href}
+                        className="hm-item"
+                        onSelect={() => onNavigate(item.href)}
+                      >
+                        {item.label}
+                      </Menubar.Item>
+                    ))}
+                  </Menubar.Content>
+                </Menubar.Portal>
+              </Menubar.Menu>
+            );
+          })}
+        </Menubar.Root>
+      </div>
     </>
   );
-});
-
-const styles = StyleSheet.create({
-  row: {
-    gap: 8,
-    paddingHorizontal: 8,
-    alignItems: "center",
-  },
-  chip: {
-    height: 32,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.25)",
-  },
-  menu: {
-    position: "absolute",
-    top: 80, // [PLACEHOLDER] simple pour POC. Ajustable selon hauteur header/safe area.
-    left: 12,
-    right: 12,
-    borderWidth: 1,
-    borderRadius: 14,
-    overflow: "hidden",
-  },
-  menuTitle: {
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 8,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  menuList: {
-    maxHeight: 240, // => "liste déroulante au scroll"
-  },
-  menuListContent: {
-    paddingBottom: 10,
-  },
-  menuItem: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  menuItemText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
 });

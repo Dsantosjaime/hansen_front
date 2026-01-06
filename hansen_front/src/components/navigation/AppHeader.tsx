@@ -40,17 +40,20 @@ export const AppHeader = memo(function AppHeader(
     >
       <View style={styles.inner}>
         <View style={styles.left}>
-          {canGoBack ? (
-            <Pressable
-              onPress={props.navigation.goBack}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Retour"
-              style={styles.backBtn}
-            >
+          <Pressable
+            onPress={props.navigation.goBack}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Retour"
+            style={styles.backBtn}
+          >
+            {canGoBack && (
               <Ionicons name="chevron-back" size={22} color={text} />
-            </Pressable>
-          ) : null}
+            )}
+            {!canGoBack && (
+              <Ionicons name="home-outline" size={22} color={text} />
+            )}
+          </Pressable>
 
           <Text style={[styles.brand, { color: text }]} numberOfLines={1}>
             HansenMarine
