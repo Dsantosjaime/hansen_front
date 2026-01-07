@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import {
   Contact,
+  Status,
   useGetContactsByGroupQuery,
   useGetGroupsQuery,
   useGetSubGroupsByGroupQuery,
@@ -10,6 +11,13 @@ import {
 import { Select } from "@/components/ui/Select";
 import type { SelectOption } from "@/components/ui/select.types";
 import { DataGrid, GridColumnDef } from "@/components/grid/Grid";
+import { ContactInfos } from "@/components/grid/ContactInfos";
+import { Ionicons } from "@expo/vector-icons";
+
+type PanelState =
+  | { type: "create" }
+  | { type: "edit"; contactId: string }
+  | null;
 
 export default function ContactsScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
@@ -17,11 +25,11 @@ export default function ContactsScreen() {
 
   const { data: groups = [], isLoading: groupsLoading } = useGetGroupsQuery();
 
-  // IMPORTANT: groupId dépend d'un fetch async => démarre à null
   const [groupId, setGroupId] = useState<number | null>(null);
   const [subGroupId, setSubGroupId] = useState<number | null>(null);
 
-  // Quand les groupes arrivent, sélectionne le 1er groupe (si non défini ou invalide)
+  const [panel, setPanel] = useState<PanelState>(null);
+
   useEffect(() => {
     if (!groups.length) return;
 
@@ -38,7 +46,6 @@ export default function ContactsScreen() {
     [groups]
   );
 
-  // Ne requête sous-groupes + contacts que quand groupId est connu
   const { data: subGroups = [] } = useGetSubGroupsByGroupQuery(
     groupId ? { groupId } : (undefined as any)
   );
@@ -68,6 +75,10 @@ export default function ContactsScreen() {
     }).format(d);
   };
 
+  const openContactInfos = (contact: Contact) => {
+    setPanel({ type: "edit", contactId: contact.id });
+  };
+
   const columns = useMemo<GridColumnDef<Contact>[]>(
     () => [
       { accessorKey: "lastName", header: "Nom", meta: { editable: true } },
@@ -78,7 +89,18 @@ export default function ContactsScreen() {
         meta: { editable: true, inputType: "email" },
       },
       { accessorKey: "function", header: "Fonction", meta: { editable: true } },
-      { accessorKey: "status", header: "Statut", meta: { editable: true } },
+      {
+        accessorKey: "status",
+        header: "Statut",
+        meta: {
+          editable: true,
+          editor: "select",
+          selectOptions: [
+            { value: Status.ACTIF, label: Status.ACTIF },
+            { value: Status.INACTIF, label: Status.INACTIF },
+          ],
+        },
+      },
       {
         id: "phoneNumberFirst",
         header: "Téléphone",
@@ -102,9 +124,52 @@ export default function ContactsScreen() {
         header: "Date de contact",
         cell: (info) => formatDateFR(info.getValue()),
       },
+      {
+        id: "actions",
+        header: "", // pas de titre
+        enableSorting: false, // pas de tri sur cette colonne
+        meta: { width: 56 }, // petite colonne fixe
+        cell: ({ row }) => (
+          <Pressable
+            onPress={() => openContactInfos(row.original)}
+            hitSlop={10}
+            style={({ pressed }) => ({
+              width: 32,
+              height: 32,
+              borderRadius: 10,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
+              marginLeft: "auto",
+            })}
+            accessibilityRole="button"
+            accessibilityLabel="Ouvrir la fiche contact"
+          >
+            <Ionicons name="open-outline" size={18} color="#1F536E" />
+          </Pressable>
+        ),
+      },
     ],
     []
   );
+
+  const defaultGroup = useMemo(() => {
+    if (!groupId) return null;
+    return groups.find((g) => g.id === groupId) ?? null;
+  }, [groups, groupId]);
+
+  const defaultSubGroup = useMemo(() => {
+    if (!subGroupId) return null;
+    return subGroups.find((sg) => sg.id === subGroupId) ?? null;
+  }, [subGroups, subGroupId]);
+
+  const selectedContact =
+    panel?.type === "edit"
+      ? filteredContacts.find((c) => c.id === panel.contactId) ?? null
+      : null;
+
+  const isInfosOpen = panel !== null;
+  const canAddContact = !!subGroupId;
 
   return (
     <View style={[styles.screen, { backgroundColor: backgroundLight }]}>
@@ -131,20 +196,46 @@ export default function ContactsScreen() {
           searchPlaceholder="Rechercher un sous-groupe..."
           disabled={!groupId || subGroupOptions.length === 0}
         />
+
+        {/* Bouton Ajouter Contact (grisé si sous-groupe non sélectionné) */}
+        <Pressable
+          onPress={() => {
+            if (!canAddContact) return;
+            setPanel({ type: "create" });
+          }}
+          disabled={!canAddContact}
+          style={({ pressed }) => [
+            styles.addBtn,
+            !canAddContact && styles.addBtnDisabled,
+            pressed && canAddContact && styles.addBtnPressed,
+          ]}
+        >
+          <Text style={styles.addBtnText}>Ajouter Contact</Text>
+        </Pressable>
       </View>
 
       <View style={styles.content}>
-        <View style={[styles.gridPlaceholder, { borderColor: border }]}>
-          <DataGrid
-            data={filteredContacts}
-            columns={columns}
-            pageSize={10}
-            onCellUpdate={({ rowIndex, columnId, value }) => {
-              // [PLACEHOLDER] patch côté store/RTK Query plus tard
-              console.log("cell update", { rowIndex, columnId, value });
-            }}
-            onLineClick={(rowIndex) => {}}
-          />
+        <View style={[styles.panelContainer, { borderColor: border }]}>
+          {/* GRID (reste montée, simplement cachée) */}
+          <View style={{ flex: 1, display: isInfosOpen ? "none" : "flex" }}>
+            <DataGrid
+              data={filteredContacts}
+              columns={columns}
+              pageSize={10}
+              onCellUpdate={({ rowIndex, columnId, value }) => {
+                console.log("cell update", { rowIndex, columnId, value });
+              }}
+            />
+          </View>
+          <View style={{ flex: 1, display: isInfosOpen ? "flex" : "none" }}>
+            <ContactInfos
+              mode={panel?.type === "create" ? "create" : "edit"}
+              initialContact={selectedContact}
+              defaultGroup={defaultGroup}
+              defaultSubGroup={defaultSubGroup}
+              onClose={() => setPanel(null)}
+            />
+          </View>
         </View>
       </View>
     </View>
@@ -161,17 +252,31 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   content: { marginTop: 16, flex: 1 },
-  info: { fontSize: 14, fontWeight: "700", marginBottom: 10 },
-  gridPlaceholder: {
+
+  panelContainer: {
     flex: 1,
     borderRadius: 14,
-    alignItems: "center",
+    alignItems: "stretch",
     justifyContent: "flex-start",
   },
-  placeholderText: {
-    fontSize: 13,
-    fontWeight: "700",
+
+  addBtn: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: "#1F536E",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  addBtnDisabled: {
+    backgroundColor: "#94A3B8",
+  },
+  addBtnPressed: {
     opacity: 0.85,
-    textAlign: "center",
+  },
+  addBtnText: {
+    color: "white",
+    fontWeight: "800",
+    fontSize: 13,
   },
 });

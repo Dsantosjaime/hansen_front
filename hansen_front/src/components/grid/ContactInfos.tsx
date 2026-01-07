@@ -1,19 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { Contact } from "@/services/contactsApi";
+import {
+  Contact,
+  Status,
+  useGetContactEmailsQuery,
+} from "@/services/contactsApi";
 import { useThemeColor } from "@/hooks/use-theme-color";
+import { Select } from "../ui/Select";
+import { SelectOption } from "../ui/select.types";
+import { ContactList } from "@/components/grid/ContactList";
+import { skipToken } from "@reduxjs/toolkit/query";
 
 type Mode = "create" | "edit";
 
 type ContactDraft = {
-  id?: Contact extends { id: infer T } ? T : string | number;
+  id?: string | number;
 
   firstName: string;
   lastName: string;
   email: string;
   function: string;
-  status: string;
+  status: Status;
   phoneNumber: [string, string];
   group: { id: number; name: string };
   subGroup: { id: number; name: string };
@@ -23,24 +31,22 @@ type ContactDraft = {
 
 type Props = {
   mode: Mode;
-  contactId?: ContactDraft["id"]; // utilisé en mode edit
   initialContact?: Contact | null; // le contact trouvé depuis la grid
   defaultGroup?: { id: number; name: string } | null; // utile en create
   defaultSubGroup?: { id: number; name: string } | null; // utile en create
-
-  onSave: (draft: ContactDraft, mode: Mode) => void | Promise<void>;
   onClose: () => void;
 };
 
 function makeDraftFromContact(c: Contact): ContactDraft {
   return {
-    // @ts-expect-error [PLACEHOLDER] si Contact n'a pas encore id, ajoute-le au type Contact
-    id: c.id,
+    // [PLACEHOLDER] idéalement: Contact doit avoir un id: string
+    // si c.id existe déjà chez toi, remplace par `id: c.id`
+    id: (c as any).id,
     firstName: c.firstName ?? "",
     lastName: c.lastName ?? "",
     email: c.email ?? "",
     function: c.function ?? "",
-    status: c.status ?? "",
+    status: c.status ?? Status.ACTIF,
     phoneNumber: c.phoneNumber ?? ["", ""],
     group: c.group,
     subGroup: c.subGroup,
@@ -58,7 +64,7 @@ function makeEmptyDraft(
     lastName: "",
     email: "",
     function: "",
-    status: "",
+    status: Status.ACTIF,
     phoneNumber: ["", ""],
     group: defaultGroup ?? { id: -1, name: "" },
     subGroup: defaultSubGroup ?? { id: -1, name: "" },
@@ -67,26 +73,11 @@ function makeEmptyDraft(
   };
 }
 
-function isSameDraft(a: ContactDraft, b: ContactDraft) {
-  return (
-    a.firstName === b.firstName &&
-    a.lastName === b.lastName &&
-    a.email === b.email &&
-    a.function === b.function &&
-    a.status === b.status &&
-    a.phoneNumber[0] === b.phoneNumber[0] &&
-    a.phoneNumber[1] === b.phoneNumber[1] &&
-    a.subGroup.name === b.subGroup.name
-  );
-}
-
 export function ContactInfos({
   mode,
-  contactId,
   initialContact,
   defaultGroup,
   defaultSubGroup,
-  onSave,
   onClose,
 }: Props) {
   const background = useThemeColor(
@@ -103,19 +94,30 @@ export function ContactInfos({
     return makeEmptyDraft(defaultGroup, defaultSubGroup);
   }, [mode, initialContact, defaultGroup, defaultSubGroup]);
 
+  const shouldFetch = mode === "edit" && !!initialContact?.id;
+
+  const queryArg = useMemo(() => {
+    return shouldFetch ? { contactId: initialContact?.id! } : skipToken;
+  }, [shouldFetch, initialContact?.id]);
+
+  const { data: emails = [], isLoading: listEmailIsLoading } =
+    useGetContactEmailsQuery(queryArg);
+
   const initialRef = useRef<ContactDraft>(initialDraft);
   const [draft, setDraft] = useState<ContactDraft>(initialDraft);
 
-  // Resync quand on ouvre un autre contact / change de mode
   useEffect(() => {
     initialRef.current = initialDraft;
     setDraft(initialDraft);
   }, [initialDraft]);
 
-  const dirty = useMemo(() => !isSameDraft(draft, initialRef.current), [draft]);
-
-  const saveColor = dirty ? "#FFFFFF" : "rgba(255,255,255,0.45)"; // icône sur header sombre
-  const saveDisabled = !dirty;
+  const statusOptions: SelectOption<Status>[] = useMemo(
+    () => [
+      { value: Status.ACTIF, label: Status.ACTIF },
+      { value: Status.INACTIF, label: Status.INACTIF },
+    ],
+    []
+  );
 
   return (
     <View
@@ -124,34 +126,25 @@ export function ContactInfos({
         { backgroundColor: background, borderColor: border },
       ]}
     >
-      {/* Header actions */}
       <View style={styles.topRow}>
         <View style={styles.topLeft}>
-          <Text style={[styles.subGroup, { color: muted }]} numberOfLines={1}>
-            {draft.subGroup.name || "[Sous-Groupe]"}
-          </Text>
-          <Text style={[styles.title, { color: text }]} numberOfLines={1}>
-            {mode === "create"
-              ? "Nouveau contact"
-              : `${draft.lastName} ${draft.firstName}`.trim() || "Contact"}
-          </Text>
+          <TextInput
+            value={draft.lastName}
+            onChangeText={(v) => setDraft((d) => ({ ...d, lastName: v }))}
+            style={[styles.title, { color: text }]}
+            placeholder="Nom"
+            placeholderTextColor={muted}
+          />
+          <TextInput
+            value={draft.firstName}
+            onChangeText={(v) => setDraft((d) => ({ ...d, firstName: v }))}
+            style={[styles.title, { color: text }]}
+            placeholder="Prénom"
+            placeholderTextColor={muted}
+          />
         </View>
 
         <View style={styles.topRight}>
-          <Pressable
-            disabled={saveDisabled}
-            onPress={() => onSave(draft, mode)}
-            hitSlop={10}
-            style={({ pressed }) => [
-              styles.iconBtn,
-              { opacity: saveDisabled ? 0.5 : pressed ? 0.7 : 1 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Sauvegarder"
-          >
-            <Ionicons name="save-outline" size={20} color={saveColor} />
-          </Pressable>
-
           <Pressable
             onPress={onClose}
             hitSlop={10}
@@ -162,64 +155,35 @@ export function ContactInfos({
             accessibilityRole="button"
             accessibilityLabel="Fermer"
           >
-            <Ionicons name="close" size={22} color="#FFFFFF" />
+            <Ionicons name="close" size={30} color="#FFFFFF" />
           </Pressable>
-
-          <View style={styles.statusBox}>
-            <Text style={[styles.label, { color: muted }]}>Status</Text>
-            <TextInput
-              value={draft.status}
-              onChangeText={(v) => setDraft((d) => ({ ...d, status: v }))}
-              style={[styles.input, { borderColor: border, color: text }]}
-              placeholder="[PLACEHOLDER] Actif"
-              placeholderTextColor={muted}
-            />
-          </View>
         </View>
       </View>
 
-      {/* Content */}
+      {/* Bloc inputs haut */}
       <View style={styles.content}>
-        <View style={styles.leftCol}>
-          <Text style={[styles.label, { color: muted }]}>Sous-Groupe</Text>
+        <View style={styles.inputsCol}>
+          <Text style={[styles.label, { color: muted }]}>Poste</Text>
           <TextInput
-            value={draft.subGroup.name}
-            onChangeText={(v) =>
-              setDraft((d) => ({ ...d, subGroup: { ...d.subGroup, name: v } }))
-            }
+            value={draft.function}
+            onChangeText={(v) => setDraft((d) => ({ ...d, function: v }))}
             style={[styles.input, { borderColor: border, color: text }]}
-            placeholder="[PLACEHOLDER] Sous-Groupe A1"
+            placeholder="Chargé de recrutement"
             placeholderTextColor={muted}
+            autoCapitalize="none"
           />
-
-          <Text style={[styles.label, { color: muted }]}>Nom</Text>
-          <TextInput
-            value={draft.lastName}
-            onChangeText={(v) => setDraft((d) => ({ ...d, lastName: v }))}
-            style={[styles.input, { borderColor: border, color: text }]}
-            placeholder="[PLACEHOLDER] Dupont"
-            placeholderTextColor={muted}
-          />
-
-          <Text style={[styles.label, { color: muted }]}>Prénom</Text>
-          <TextInput
-            value={draft.firstName}
-            onChangeText={(v) => setDraft((d) => ({ ...d, firstName: v }))}
-            style={[styles.input, { borderColor: border, color: text }]}
-            placeholder="[PLACEHOLDER] Marie"
-            placeholderTextColor={muted}
-          />
-
           <Text style={[styles.label, { color: muted }]}>Email</Text>
           <TextInput
             value={draft.email}
             onChangeText={(v) => setDraft((d) => ({ ...d, email: v }))}
             style={[styles.input, { borderColor: border, color: text }]}
-            placeholder="[PLACEHOLDER] marie.dupont@email.com"
+            placeholder="marie.dupont@email.com"
             placeholderTextColor={muted}
             autoCapitalize="none"
           />
+        </View>
 
+        <View style={styles.inputsCol}>
           <Text style={[styles.label, { color: muted }]}>Téléphone 1</Text>
           <TextInput
             value={draft.phoneNumber[0]}
@@ -227,7 +191,7 @@ export function ContactInfos({
               setDraft((d) => ({ ...d, phoneNumber: [v, d.phoneNumber[1]] }))
             }
             style={[styles.input, { borderColor: border, color: text }]}
-            placeholder="[PLACEHOLDER] +33 6 ..."
+            placeholder="+33 6 00 00 00 00"
             placeholderTextColor={muted}
           />
 
@@ -238,14 +202,61 @@ export function ContactInfos({
               setDraft((d) => ({ ...d, phoneNumber: [d.phoneNumber[0], v] }))
             }
             style={[styles.input, { borderColor: border, color: text }]}
-            placeholder="[PLACEHOLDER] +33 1 ..."
+            placeholder="+33 1 00 00 00 00"
             placeholderTextColor={muted}
           />
         </View>
+
+        <View style={[styles.inputsCol, styles.rightInputsCol]}>
+          <View style={styles.statusBox}>
+            <Select<Status>
+              label="Status"
+              value={draft.status ?? null}
+              options={statusOptions}
+              onChange={(v) => setDraft((d) => ({ ...d, status: v }))}
+              searchable={false}
+              showLabel={true}
+            />
+          </View>
+        </View>
       </View>
 
-      {/* Header overlay background for icons (sobriété) */}
-      <View style={styles.headerOverlay} />
+      <View style={styles.content}>
+        <View style={styles.inputsCol}>
+          <ContactList
+            contactId={initialContact?.id}
+            title={"Historique des Emails"}
+            emptyListPlaceHolder={"Aucun Email envoyés"}
+            shouldFetch={shouldFetch}
+            isLoading={listEmailIsLoading}
+            data={emails}
+          />
+        </View>
+        <View style={styles.inputsCol}>
+          <ContactList
+            contactId={initialContact?.id}
+            title={"Services"}
+            emptyListPlaceHolder={"Pas de Services notés"}
+            shouldFetch={shouldFetch}
+            isLoading={listEmailIsLoading}
+            data={emails}
+            onAddLine={() => {}}
+            onCheckRow={() => {}}
+          />
+        </View>
+        <View style={styles.inputsCol}>
+          <ContactList
+            contactId={initialContact?.id}
+            title={"Rappels"}
+            emptyListPlaceHolder={"Pas de Rappels notés"}
+            shouldFetch={shouldFetch}
+            isLoading={listEmailIsLoading}
+            data={emails}
+            onAddLine={() => {}}
+            onCheckRow={() => {}}
+          />
+        </View>
+      </View>
     </View>
   );
 }
@@ -259,33 +270,18 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
-  // overlay “barre header” sombre derrière les actions (pour cohérence intranet)
-  headerOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 64,
-    backgroundColor: "#1F536E", // [PLACEHOLDER] ton header
-    zIndex: -1,
-  },
-
   topRow: {
     height: 64,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    backgroundColor: "#1F536E",
   },
-  topLeft: { flexShrink: 1, minWidth: 200 },
-  subGroup: { fontSize: 12, fontWeight: "700" },
+  topLeft: { flexShrink: 1, minWidth: 200, flexDirection: "column" },
   title: { fontSize: 18, fontWeight: "800" },
 
-  topRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
+  topRight: { flexDirection: "row", alignItems: "center", gap: 10 },
   iconBtn: {
     width: 34,
     height: 34,
@@ -293,30 +289,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  statusBox: {
-    width: 180,
-    gap: 4,
-  },
+
+  statusBox: { width: 180, gap: 4 },
 
   content: {
     flex: 1,
     minHeight: 0,
     padding: 16,
+    flexDirection: "row",
+    gap: 16,
   },
-  leftCol: {
-    flex: 1,
-    maxWidth: 520,
-    gap: 8,
-  },
+  inputsCol: { flex: 1, gap: 8, flexDirection: "column" },
+  rightInputsCol: { alignItems: "flex-end" },
 
   label: { fontSize: 12, fontWeight: "800", opacity: 0.9 },
   input: {
     height: 40,
-    borderWidth: 1,
-    borderRadius: 12,
     paddingHorizontal: 12,
     fontSize: 14,
     fontWeight: "700",
-    backgroundColor: "white",
+    flexWrap: "wrap",
   },
 });

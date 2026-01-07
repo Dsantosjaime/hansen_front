@@ -17,6 +17,8 @@ import {
   View,
   ScrollView,
 } from "react-native";
+import { Select } from "../ui/Select";
+import type { SelectOption } from "@/components/ui/select.types";
 
 type CellUpdatePayload<TData> = {
   row: TData;
@@ -28,12 +30,11 @@ type CellUpdatePayload<TData> = {
 type GridColumnMeta<TData extends object> = {
   editable?: boolean;
   inputType?: "text" | "email" | "tel";
-  /**
-   * Optionnel: pour les champs dérivés (ex: phoneNumber[0]),
-   * permet de patcher correctement la ligne.
-   */
+
+  editor?: "text" | "select";
+  selectOptions?: { value: string; label: string }[];
+
   updateValue?: (row: TData, value: unknown, columnId: string) => TData;
-  /** Optionnel: largeur fixe en px pour une colonne */
   width?: number;
 };
 
@@ -44,14 +45,10 @@ export type GridColumnDef<TData extends object> = ColumnDef<TData, unknown> & {
 type DataGridProps<TData extends object> = {
   data: TData[];
   columns: GridColumnDef<TData>[];
-
   pageSize?: number;
   initialPageIndex?: number;
-
   getRowId?: (row: TData, index: number) => string;
-
   onCellUpdate?: (payload: CellUpdatePayload<TData>) => void;
-  onLineClick: (rowIndex: number) => void;
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -94,6 +91,7 @@ function EditableCell<TData extends object>(props: {
   columnId: string;
   table: any;
   inputType?: "text" | "email" | "tel";
+  meta?: GridColumnMeta<TData>;
 }) {
   const initial = String(props.getValue() ?? "");
   const [val, setVal] = useState(initial);
@@ -103,22 +101,39 @@ function EditableCell<TData extends object>(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial]);
 
-  const commit = () => {
+  const commit = (nextValue?: unknown) => {
+    const valueToSave = nextValue ?? val;
+
     props.table.options.meta?.updateData?.(
       props.rowIndex,
       props.rowOriginal,
       props.columnId,
-      val
+      valueToSave
     );
   };
+
+  // ----- Editor "select" -----
+  if (props.meta?.editor === "select" && props.meta.selectOptions) {
+    const options = props.meta.selectOptions as SelectOption<string>[];
+
+    return (
+      <Select
+        value={String(props.getValue() ?? "")}
+        options={options}
+        onChange={(v) => commit(v)}
+        searchable={false}
+        showLabel={false}
+        density="compact"
+      />
+    );
+  }
 
   return (
     <TextInput
       value={val}
       onChangeText={setVal}
-      onBlur={commit}
-      onSubmitEditing={commit}
-      // RN Web mappe keyboardType => inputmode/type parfois, sinon on reste neutre
+      onBlur={() => commit()}
+      onSubmitEditing={() => commit()}
       keyboardType={
         props.inputType === "email"
           ? "email-address"
@@ -142,7 +157,6 @@ export function DataGrid<TData extends object>({
   initialPageIndex = 0,
   getRowId,
   onCellUpdate,
-  onLineClick,
 }: DataGridProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [pagination, setPagination] = useState({
@@ -289,52 +303,49 @@ export function DataGrid<TData extends object>({
             contentContainerStyle={styles.scrollContent}
           >
             {rows.map((row: any) => (
-              <Pressable key={row.id} onPress={() => onLineClick(row.id)}>
-                <View style={styles.row}>
-                  {row.getVisibleCells().map((cell: any) => {
-                    const meta = cell.column.columnDef.meta as
-                      | GridColumnMeta<TData>
-                      | undefined;
-                    const editable = !!meta?.editable;
+              <View key={row.id} style={styles.row}>
+                {row.getVisibleCells().map((cell: any) => {
+                  const meta = cell.column.columnDef.meta as
+                    | GridColumnMeta<TData>
+                    | undefined;
+                  const editable = !!meta?.editable;
 
-                    const rendered = flexRender(
-                      cell.column.columnDef.cell,
-                      cell.getContext()
-                    );
+                  const rendered = flexRender(
+                    cell.column.columnDef.cell,
+                    cell.getContext()
+                  );
 
-                    return (
-                      <View
-                        key={cell.id}
-                        style={[
-                          styles.cell,
-                          meta?.width
-                            ? { width: meta.width, flexGrow: 0 }
-                            : null,
-                        ]}
-                      >
-                        {editable ? (
-                          <EditableCell
-                            getValue={cell.getValue}
-                            rowIndex={row.index}
-                            rowOriginal={row.original}
-                            columnId={cell.column.id}
-                            table={table}
-                            inputType={meta?.inputType}
-                          />
-                        ) : React.isValidElement(rendered) ? (
-                          // Si c'est un élément React, on l'affiche tel quel
-                          rendered
-                        ) : (
-                          // Sinon on formate une valeur primitive
-                          <Text style={styles.cellText} numberOfLines={1}>
-                            {formatCellValue(cell.getValue())}
-                          </Text>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
-              </Pressable>
+                  return (
+                    <View
+                      key={cell.id}
+                      style={[
+                        styles.cell,
+                        meta?.width ? { width: meta.width, flexGrow: 0 } : null,
+                      ]}
+                    >
+                      {editable ? (
+                        <EditableCell
+                          getValue={cell.getValue}
+                          rowIndex={row.index}
+                          rowOriginal={row.original}
+                          columnId={cell.column.id}
+                          table={table}
+                          inputType={meta?.inputType}
+                          meta={meta}
+                        />
+                      ) : React.isValidElement(rendered) ? (
+                        // Si c'est un élément React, on l'affiche tel quel
+                        rendered
+                      ) : (
+                        // Sinon on formate une valeur primitive
+                        <Text style={styles.cellText} numberOfLines={1}>
+                          {formatCellValue(cell.getValue())}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
             ))}
 
             <View style={styles.filler} />

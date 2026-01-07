@@ -18,7 +18,6 @@ export function Select<T extends string | number>({
   placeholder = "Sélectionner",
 
   onChange,
-  onClear,
   disabled,
 
   density = "default",
