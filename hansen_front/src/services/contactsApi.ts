@@ -169,12 +169,22 @@ export const contactsApi = createApi({
 
     getGroups: builder.query<GroupRef[], void>({
       async queryFn() {
+        const sleep = (ms: number) =>
+          new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+        await sleep(2000);
+
         return { data: mockGroups };
       },
     }),
 
     getSubGroupsByGroup: builder.query<SubGroupRef[], { groupId: number }>({
       async queryFn({ groupId }) {
+        const sleep = (ms: number) =>
+          new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+        await sleep(2000);
+
         return { data: mockSubGroupsByGroupId[groupId] ?? [] };
       },
     }),

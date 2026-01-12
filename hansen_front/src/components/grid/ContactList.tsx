@@ -1,4 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, {
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+  useState,
+  useCallback,
+} from "react";
 import {
   Pressable,
   ScrollView,
@@ -19,8 +25,6 @@ type ListRow = {
 };
 
 type Props = {
-  contactId?: string;
-
   title: string;
   emptyListPlaceHolder: string;
 
@@ -28,9 +32,17 @@ type Props = {
   isLoading: boolean;
   shouldFetch: boolean;
 
-  onCheckRow?: (id: string) => void;
-
+  onCheckRow?: (id: string, draftSubject: string) => void;
   onAddLine?: (sentAtISO: string, subject: string) => void | Promise<void>;
+};
+
+/**
+ * API accessible depuis l'extérieur via ref.
+ * Tu peux réduire à seulement setDraftFromOutside si tu veux.
+ */
+export type ContactListHandle = {
+  setDraftFromOutside: (draftSubject: string) => void;
+  resetDraft: () => void;
 };
 
 function formatDateFR(value: string) {
@@ -76,162 +88,196 @@ function CheckCell({
   );
 }
 
-export function ContactList({
-  contactId,
-  data,
-  isLoading,
-  shouldFetch,
-  title,
-  emptyListPlaceHolder,
-  onCheckRow,
-  onAddLine,
-}: Props) {
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
-  const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
+export const ContactList = forwardRef<ContactListHandle, Props>(
+  (
+    {
+      data,
+      isLoading,
+      shouldFetch,
+      title,
+      emptyListPlaceHolder,
+      onCheckRow,
+      onAddLine,
+    }: Props,
+    ref
+  ) => {
+    const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
+    const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
 
-  const showCheck = !!onCheckRow;
-  const canAdd = !!onAddLine;
+    const showCheck = !!onCheckRow;
+    const canAdd = !!onAddLine;
 
-  // Selection locale (juste pour visuel). La source de vérité peut être dans le parent plus tard.
-  const [checkedIds, setCheckedIds] = useState<Record<string, boolean>>({});
+    // Selection locale (juste pour visuel). La source de vérité peut être dans le parent plus tard.
+    const [checkedIds, setCheckedIds] = useState<Record<string, boolean>>({});
 
-  // Ajout ligne
-  const [isAdding, setIsAdding] = useState(false);
-  const [draftDate, setDraftDate] = useState(""); // YYYY-MM-DD
-  const [draftSubject, setDraftSubject] = useState("");
+    // Ajout ligne
+    const [isAdding, setIsAdding] = useState(false);
+    const [draftDate, setDraftDate] = useState("");
+    const [draftSubject, setDraftSubject] = useState("");
 
-  const draftISO = useMemo(() => dateInputToISO(draftDate), [draftDate]);
-  const canSubmitAdd = !!onAddLine && !!draftISO && !!draftSubject.trim();
+    const draftISO = useMemo(() => dateInputToISO(draftDate), [draftDate]);
+    const canSubmitAdd = !!onAddLine && !!draftISO && !!draftSubject.trim();
 
-  const toggleCheck = (id: string) => {
-    setCheckedIds((prev) => ({ ...prev, [id]: !prev[id] }));
-    onCheckRow?.(id);
-  };
+    const toggleCheck = useCallback(
+      (id: string, subject: string) => {
+        setCheckedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+        onCheckRow?.(id, subject);
+      },
+      [onCheckRow]
+    );
 
-  const submitAdd = async () => {
-    if (!onAddLine) return;
-    if (!canSubmitAdd) return;
+    const resetDraft = useCallback(() => {
+      setDraftDate("");
+      setDraftSubject("");
+      setIsAdding(false);
+    }, []);
 
-    await onAddLine(draftISO!, draftSubject.trim());
+    // Méthode impérative: utilisable depuis le parent
+    const setDraftFromOutside = useCallback((subject: string) => {
+      setDraftSubject(subject);
+      setIsAdding(true);
+    }, []);
 
-    // reset UI (POC)
-    setDraftDate("");
-    setDraftSubject("");
-    setIsAdding(false);
-  };
+    useImperativeHandle(
+      ref,
+      () => ({
+        setDraftFromOutside,
+        resetDraft,
+      }),
+      [resetDraft, setDraftFromOutside]
+    );
 
-  return (
-    <View style={[styles.card, { borderColor: border }]}>
-      {/* Title bar */}
-      <View style={styles.titleBar}>
-        <Text style={[styles.sectionTitle, { color: "#FFFFFF" }]}>{title}</Text>
+    const submitAdd = useCallback(async () => {
+      if (!onAddLine) return;
+      if (!canSubmitAdd) return;
 
-        {canAdd ? (
-          <Pressable
-            onPress={() => setIsAdding((v) => !v)}
-            hitSlop={10}
-            style={({ pressed }) => [
-              styles.addIconBtn,
-              pressed && { opacity: 0.7 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Ajouter une ligne"
-          >
-            <Ionicons
-              name={isAdding ? "close" : "add"}
-              size={30}
-              color="#FFFFFF"
-            />
-          </Pressable>
-        ) : null}
-      </View>
+      await onAddLine(draftISO!, draftSubject.trim());
+      resetDraft();
+    }, [onAddLine, canSubmitAdd, draftISO, draftSubject, resetDraft]);
 
-      <View style={[styles.headerRow, { borderBottomColor: border }]}>
-        {showCheck ? <View style={styles.checkHeaderSpacer} /> : null}
+    return (
+      <View style={[styles.card, { borderColor: border }]}>
+        {/* Title bar */}
+        <View style={styles.titleBar}>
+          <Text style={[styles.sectionTitle, { color: "#FFFFFF" }]}>
+            {title}
+          </Text>
 
-        <Text style={[styles.headerText, { color: "#FFFFFF", flex: 0.35 }]}>
-          {"Date d'envoi"}
-        </Text>
-        <Text style={[styles.headerText, { color: "#FFFFFF", flex: 0.65 }]}>
-          Objet
-        </Text>
-      </View>
+          {canAdd ? (
+            <Pressable
+              onPress={() => setIsAdding((v) => !v)}
+              hitSlop={10}
+              style={({ pressed }) => [
+                styles.addIconBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Ajouter une ligne"
+            >
+              <Ionicons
+                name={isAdding ? "close" : "add"}
+                size={30}
+                color="#FFFFFF"
+              />
+            </Pressable>
+          ) : null}
+        </View>
 
-      {/* Content */}
-      {!shouldFetch ? (
-        <View style={styles.empty}>
-          <Text style={[styles.emptyText, { color: muted }]}>
-            {emptyListPlaceHolder}
+        <View style={[styles.headerRow, { borderBottomColor: border }]}>
+          {showCheck ? <View style={styles.checkHeaderSpacer} /> : null}
+
+          <Text style={[styles.headerText, { color: "#FFFFFF", flex: 0.35 }]}>
+            {"Date d'envoi"}
+          </Text>
+          <Text style={[styles.headerText, { color: "#FFFFFF", flex: 0.65 }]}>
+            Objet
           </Text>
         </View>
-      ) : isLoading ? (
-        <Spinner fullHeight />
-      ) : (
-        <ScrollView
-          style={styles.list}
-          contentContainerStyle={styles.listContent}
-        >
-          {canAdd && isAdding ? (
-            <View style={[styles.row, { borderBottomColor: border }]}>
-              <DateInput
-                value={draftDate}
-                onChange={setDraftDate}
-                style={styles.addDateInput}
-              />
 
-              <TextInput
-                value={draftSubject}
-                onChangeText={setDraftSubject}
-                placeholder="Objet"
-                placeholderTextColor={muted}
-                style={styles.addObjectInput}
-              />
-
-              <Pressable
-                onPress={submitAdd}
-                disabled={!canSubmitAdd}
-                style={({ pressed }) => [
-                  { opacity: !canSubmitAdd ? 0.45 : pressed ? 0.75 : 1 },
-                ]}
-              >
-                <Ionicons name={"add"} size={30} color="black" />
-              </Pressable>
-            </View>
-          ) : null}
-
-          {data.map((e) => (
-            <View
-              key={e.id}
-              style={[styles.row, { borderBottomColor: border }]}
-            >
-              {showCheck ? (
-                <CheckCell
-                  checked={!!checkedIds[e.id]}
-                  onPress={() => toggleCheck(e.id)}
+        {/* Content */}
+        {!shouldFetch ? (
+          <View style={styles.empty}>
+            <Text style={[styles.emptyText, { color: muted }]}>
+              {emptyListPlaceHolder}
+            </Text>
+          </View>
+        ) : isLoading ? (
+          <Spinner fullHeight />
+        ) : (
+          <ScrollView
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+          >
+            {canAdd && isAdding ? (
+              <View style={[styles.row, { borderBottomColor: border }]}>
+                <DateInput
+                  value={draftDate}
+                  onChange={setDraftDate}
+                  style={styles.addDateInput}
                 />
-              ) : null}
 
-              <Text style={[styles.cellText, { flex: 0.35 }]} numberOfLines={1}>
-                {formatDateFR(e.sentAt)}
-              </Text>
-              <Text style={[styles.cellText, { flex: 0.65 }]} numberOfLines={1}>
-                {e.subject}
-              </Text>
-            </View>
-          ))}
+                <TextInput
+                  value={draftSubject}
+                  onChangeText={setDraftSubject}
+                  placeholder="Objet"
+                  placeholderTextColor={muted}
+                  style={styles.addObjectInput}
+                />
 
-          {data.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={[styles.emptyText, { color: muted }]}>
-                {emptyListPlaceHolder}
-              </Text>
-            </View>
-          ) : null}
-        </ScrollView>
-      )}
-    </View>
-  );
-}
+                <Pressable
+                  onPress={submitAdd}
+                  disabled={!canSubmitAdd}
+                  style={({ pressed }) => [
+                    { opacity: !canSubmitAdd ? 0.45 : pressed ? 0.75 : 1 },
+                  ]}
+                >
+                  <Ionicons name={"add"} size={30} color="black" />
+                </Pressable>
+              </View>
+            ) : null}
+
+            {data.map((e) => (
+              <View
+                key={e.id}
+                style={[styles.row, { borderBottomColor: border }]}
+              >
+                {showCheck ? (
+                  <CheckCell
+                    checked={!!checkedIds[e.id]}
+                    onPress={() => toggleCheck(e.id, e.subject)}
+                  />
+                ) : null}
+
+                <Text
+                  style={[styles.cellText, { flex: 0.35 }]}
+                  numberOfLines={1}
+                >
+                  {formatDateFR(e.sentAt)}
+                </Text>
+                <Text
+                  style={[styles.cellText, { flex: 0.65 }]}
+                  numberOfLines={1}
+                >
+                  {e.subject}
+                </Text>
+              </View>
+            ))}
+
+            {data.length === 0 ? (
+              <View style={styles.empty}>
+                <Text style={[styles.emptyText, { color: muted }]}>
+                  {emptyListPlaceHolder}
+                </Text>
+              </View>
+            ) : null}
+          </ScrollView>
+        )}
+      </View>
+    );
+  }
+);
+
+ContactList.displayName = "ContactList";
 
 const styles = StyleSheet.create({
   card: {

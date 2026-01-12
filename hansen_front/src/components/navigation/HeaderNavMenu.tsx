@@ -35,7 +35,7 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
         label: "Suivi",
         type: "dropdown",
         items: [
-          { label: "Groupes / Sous-Groupes", href: "/suivi/groups" },
+          { label: "Groupes / Sous-Groupes", href: "/contacts/group" },
           { label: "Contacts", href: "/contacts" },
         ],
       },

@@ -9,7 +9,7 @@ import {
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { Select } from "../ui/Select";
 import { SelectOption } from "../ui/select.types";
-import { ContactList } from "@/components/grid/ContactList";
+import { ContactList, ContactListHandle } from "@/components/grid/ContactList";
 import { skipToken } from "@reduxjs/toolkit/query";
 
 type Mode = "create" | "edit";
@@ -39,8 +39,6 @@ type Props = {
 
 function makeDraftFromContact(c: Contact): ContactDraft {
   return {
-    // [PLACEHOLDER] idéalement: Contact doit avoir un id: string
-    // si c.id existe déjà chez toi, remplace par `id: c.id`
     id: (c as any).id,
     firstName: c.firstName ?? "",
     lastName: c.lastName ?? "",
@@ -80,13 +78,12 @@ export function ContactInfos({
   defaultSubGroup,
   onClose,
 }: Props) {
-  const background = useThemeColor(
-    { light: "#FFFFFF", dark: "#0B1220" },
-    "background"
-  );
+  const background = useThemeColor({}, "backgroundDark");
   const text = useThemeColor({ light: "#0F172A", dark: "#F9FAFB" }, "text");
   const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
   const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
+
+  const listRef = useRef<ContactListHandle>(null);
 
   const initialDraft = useMemo<ContactDraft>(() => {
     if (mode === "edit" && initialContact)
@@ -224,7 +221,6 @@ export function ContactInfos({
       <View style={styles.content}>
         <View style={styles.inputsCol}>
           <ContactList
-            contactId={initialContact?.id}
             title={"Historique des Emails"}
             emptyListPlaceHolder={"Aucun Email envoyés"}
             shouldFetch={shouldFetch}
@@ -234,19 +230,20 @@ export function ContactInfos({
         </View>
         <View style={styles.inputsCol}>
           <ContactList
-            contactId={initialContact?.id}
             title={"Services"}
             emptyListPlaceHolder={"Pas de Services notés"}
             shouldFetch={shouldFetch}
             isLoading={listEmailIsLoading}
             data={emails}
             onAddLine={() => {}}
-            onCheckRow={() => {}}
+            onCheckRow={(_id: string, draftSubject: string) => {
+              listRef.current?.setDraftFromOutside(draftSubject);
+            }}
           />
         </View>
         <View style={styles.inputsCol}>
           <ContactList
-            contactId={initialContact?.id}
+            ref={listRef}
             title={"Rappels"}
             emptyListPlaceHolder={"Pas de Rappels notés"}
             shouldFetch={shouldFetch}
