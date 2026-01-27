@@ -3,10 +3,7 @@ import { SelectOption } from "@/components/ui/select.types";
 import { Spinner } from "@/components/ui/Spinner";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useThemeColor } from "@/hooks/use-theme-color";
-import {
-  useGetGroupsQuery,
-  useGetSubGroupsByGroupQuery,
-} from "@/services/contactsApi";
+import { useGetGroupsQuery } from "@/services/contactsApi";
 import Ionicons from "@expo/vector-icons/build/Ionicons";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -17,7 +14,6 @@ import {
   ScrollView,
   Text,
 } from "react-native";
-import { skipToken } from "@reduxjs/toolkit/query";
 
 const INPUT_WIDTH = 500;
 
@@ -40,16 +36,18 @@ export default function GroupScreen() {
   const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
   const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
 
-  const [groupId, setGroupId] = useState<number | null>(null);
-
+  // ✅ ids numériques (comme contactsApi)
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [createMode, setCreateMode] = useState(false);
+  const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
 
-  const [createdGroupId, setCreatedGroupId] = useState<number | null>(null);
-
+  // Header draft
   const [groupDraftName, setGroupDraftName] = useState("");
+  const [newGroupNameDraft, setNewGroupNameDraft] = useState("");
 
+  // Drafts des sous-groupes
   const [subGroupDraftNames, setSubGroupDraftNames] = useState<
-    Record<number, string>
+    Record<string, string>
   >({});
 
   const {
@@ -58,30 +56,35 @@ export default function GroupScreen() {
     isFetching: groupsFetching,
   } = useGetGroupsQuery();
 
+  const groupsBusy = groupsLoading || groupsFetching;
+
   const selectedGroup = useMemo(
     () =>
       groupId == null ? null : groups.find((g) => g.id === groupId) ?? null,
     [groups, groupId]
   );
 
-  const {
-    data: subGroups = [],
-    isLoading: subGroupsLoading,
-    isFetching: subGroupsFetching,
-  } = useGetSubGroupsByGroupQuery(groupId ? { groupId } : skipToken);
+  // ✅ sous-groupes directement depuis le groupe sélectionné
+  const subGroups = useMemo(
+    () => selectedGroup?.subGroup ?? [],
+    [selectedGroup]
+  );
 
-  const groupOptions = useMemo<SelectOption<number>[]>(
+  const groupOptions = useMemo<SelectOption<string>[]>(
     () => groups.map((g) => ({ value: g.id, label: g.name })),
     [groups]
   );
 
-  const groupsBusy = groupsLoading || groupsFetching;
-  const subGroupsBusy = subGroupsLoading || subGroupsFetching;
-
-  // ✅ confirmation modal state
+  // ✅ confirmation modal
   const [confirm, setConfirm] = useState<ConfirmState>({ open: false });
   const closeConfirm = useCallback(() => setConfirm({ open: false }), []);
 
+  const onBackToGroupsList = useCallback(() => {
+    setCreateMode(false);
+    setNewGroupNameDraft("");
+  }, []);
+
+  // ✅ Auto-select premier groupe (hors create)
   useEffect(() => {
     if (createMode) return;
 
@@ -90,6 +93,7 @@ export default function GroupScreen() {
       return;
     }
 
+    // protection post-création: si le groupe créé n'est pas encore revenu dans la liste
     if (createdGroupId != null && groupId === createdGroupId) {
       const nowExists = groups.some((g) => g.id === createdGroupId);
       if (nowExists) setCreatedGroupId(null);
@@ -101,31 +105,35 @@ export default function GroupScreen() {
     if (!currentIsValid) setGroupId(groups[0].id);
   }, [createMode, createdGroupId, groupId, groups]);
 
+  // Sync header name (hors create)
   useEffect(() => {
     if (createMode) return;
     setGroupDraftName(selectedGroup?.name ?? "");
   }, [createMode, selectedGroup?.id, selectedGroup?.name]);
 
+  // Reset drafts sous-groupes quand on change de groupe
   useEffect(() => {
     setSubGroupDraftNames({});
   }, [groupId]);
 
+  // ✅ initialise/complète les drafts depuis subGroups (qui vient de selectedGroup)
   useEffect(() => {
     setSubGroupDraftNames((prev) => {
       const next = { ...prev };
-      for (const sg of subGroups as any[]) {
+      for (const sg of subGroups) {
         if (next[sg.id] === undefined) next[sg.id] = sg.name ?? "";
       }
       return next;
     });
   }, [subGroups]);
 
-  const onDeleteGroupe = useCallback(() => {
+  // ---- Delete confirmations (group / subgroup) ----
+  const onDeleteGroup = useCallback(() => {
     // TODO: delete group (mutation RTK Query + invalidation tags)
   }, []);
 
-  const onDeleteSubGroup = useCallback(async (_subGroupId: number) => {
-    // TODO: delete sub-group (mutation RTK Query + invalidation tags)
+  const onDeleteSubGroup = useCallback(async (_subGroupId: string) => {
+    // TODO: delete sub-group (mutation + invalidation tags)
   }, []);
 
   const confirmDeleteGroup = useCallback(() => {
@@ -136,14 +144,14 @@ export default function GroupScreen() {
       confirmText: "Valider",
       cancelText: "Annuler",
       onConfirm: async () => {
-        await onDeleteGroupe();
+        await onDeleteGroup();
         closeConfirm();
       },
     });
-  }, [closeConfirm, onDeleteGroupe]);
+  }, [closeConfirm, onDeleteGroup]);
 
   const confirmDeleteSubGroup = useCallback(
-    (subGroupId: number) => {
+    (subGroupId: string) => {
       setConfirm({
         open: true,
         title: "Confirmer la suppression",
@@ -160,7 +168,7 @@ export default function GroupScreen() {
   );
 
   const onUpdateSubGroupName = useCallback(
-    async (_subGroupId: number, nextName: string) => {
+    async (_subGroupId: string, nextName: string) => {
       const name = nextName.trim();
       if (!name) return;
       // TODO: update sub-group (mutation + invalidation tags)
@@ -168,16 +176,16 @@ export default function GroupScreen() {
     []
   );
 
-  // --- Ajout sous-groupe ---
+  // ---- Add subgroup ----
   const [newSubGroupName, setNewSubGroupName] = useState("");
 
   const canAddSubGroup = useMemo(() => {
-    return !!groupId && newSubGroupName.trim().length > 0;
+    return groupId != null && newSubGroupName.trim().length > 0;
   }, [groupId, newSubGroupName]);
 
   const addSubGroup = useCallback(
     async (name: string) => {
-      if (!groupId) return;
+      if (groupId == null) return;
 
       const trimmed = name.trim();
       if (!trimmed) return;
@@ -188,14 +196,15 @@ export default function GroupScreen() {
     [groupId]
   );
 
-  // --- Création nouveau groupe ---
+  // ---- Create group ----
   const addNewGroup = useCallback(
-    async (name: string): Promise<number | null> => {
+    async (name: string): Promise<string | null> => {
       const trimmed = name.trim();
       if (!trimmed) return null;
+
       try {
-        // TODO: create group (mutation RTK Query) -> doit retourner un id
-        return 2;
+        // TODO: create group (mutation RTK Query) -> return created.id
+        return "2"; // POC
         // eslint-disable-next-line no-unreachable
       } catch {
         return null;
@@ -205,13 +214,15 @@ export default function GroupScreen() {
   );
 
   const onClickCreateNewGroup = useCallback(() => {
-    setGroupId(null);
     setCreateMode(true);
     setCreatedGroupId(null);
 
+    // reset UI creation
+    setNewGroupNameDraft("");
     setGroupDraftName("");
     setNewSubGroupName("");
     setSubGroupDraftNames({});
+    setGroupId(null); // pas de groupe sélectionné pendant la création
   }, []);
 
   const handleCreateAndSelectGroupCreated = useCallback(
@@ -224,6 +235,7 @@ export default function GroupScreen() {
       setCreatedGroupId(newId);
       setGroupId(newId);
       setCreateMode(false);
+      setNewGroupNameDraft("");
     },
     [addNewGroup, createMode]
   );
@@ -241,22 +253,41 @@ export default function GroupScreen() {
         danger
       />
 
-      {/* Row: Select + bouton création */}
       <View style={styles.topRow}>
-        <View style={{ flex: 1 }}>
-          <Select<number>
-            label="Groupe"
-            value={groupId}
-            options={groupOptions}
-            onChange={(id) => {
-              setCreateMode(false);
-              setCreatedGroupId(null);
-              setGroupId(id);
-            }}
-            searchable
-            searchPlaceholder="Rechercher un groupe..."
-            disabled={groupsBusy || groupOptions.length === 0}
-          />
+        <View>
+          {createMode ? (
+            <Pressable
+              onPress={onBackToGroupsList}
+              style={({ pressed }) => [
+                styles.createGroupBtn,
+                {
+                  backgroundColor: backgroundSecond,
+                  opacity: pressed ? 0.8 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Liste des groupes"
+            >
+              <Ionicons name="list-outline" size={22} color={text} />
+              <Text style={[styles.createGroupBtnText, { color: text }]}>
+                Liste des groupes
+              </Text>
+            </Pressable>
+          ) : (
+            <Select<string>
+              label="Groupe"
+              value={groupId}
+              options={groupOptions}
+              onChange={(id) => {
+                setCreateMode(false);
+                setCreatedGroupId(null);
+                setGroupId(id);
+              }}
+              searchable
+              searchPlaceholder="Rechercher un groupe..."
+              disabled={groupsBusy || groupOptions.length === 0}
+            />
+          )}
         </View>
 
         <Pressable
@@ -299,15 +330,14 @@ export default function GroupScreen() {
             ]}
           >
             <TextInput
-              value={groupDraftName}
-              onChangeText={(t) => setGroupDraftName(t)}
-              onEndEditing={(e) => {
-                if (createMode)
-                  handleCreateAndSelectGroupCreated(e.nativeEvent.text);
+              value={createMode ? newGroupNameDraft : groupDraftName}
+              onChangeText={(t) => {
+                if (createMode) setNewGroupNameDraft(t);
+                else setGroupDraftName(t); // TODO: update group name (mutation)
               }}
               onBlur={() => {
                 if (createMode)
-                  handleCreateAndSelectGroupCreated(groupDraftName);
+                  handleCreateAndSelectGroupCreated(newGroupNameDraft);
               }}
               style={[
                 styles.textInput,
@@ -344,10 +374,6 @@ export default function GroupScreen() {
           <View style={[styles.body, styles.center]}>
             <Spinner />
           </View>
-        ) : groupId && subGroupsBusy ? (
-          <View style={[styles.body, styles.center]}>
-            <Spinner />
-          </View>
         ) : !groupId ? (
           <View style={[styles.body, styles.center]}>
             <Text style={[styles.helperText, { color: muted }]}>
@@ -362,42 +388,43 @@ export default function GroupScreen() {
             contentContainerStyle={styles.subGroupsContent}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.subGroupsGrid}>
-              <View style={styles.subGroupItem}>
-                <TextInput
-                  value={newSubGroupName}
-                  onChangeText={setNewSubGroupName}
-                  style={[
-                    styles.subGroupInput,
-                    { borderColor: border, color: text },
-                  ]}
-                  placeholder="Nouveau sous-groupe"
-                  placeholderTextColor={muted}
-                  editable={!!groupId}
-                />
-                <Pressable
-                  onPress={() => addSubGroup(newSubGroupName)}
-                  disabled={!canAddSubGroup}
-                  hitSlop={10}
-                  style={({ pressed }) => [
-                    styles.iconBtn,
-                    { opacity: !canAddSubGroup ? 0.35 : pressed ? 0.7 : 1 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Ajouter un sous-groupe"
-                >
-                  <Ionicons name="add" size={22} color={text} />
-                </Pressable>
-              </View>
+            {/* Ligne ajout sous-groupe */}
+            <View style={[styles.subGroupItem, styles.createSubGroupBtn]}>
+              <TextInput
+                value={newSubGroupName}
+                onChangeText={setNewSubGroupName}
+                style={[
+                  styles.subGroupInput,
+                  { borderColor: border, color: text },
+                ]}
+                placeholder="Nouveau sous-groupe"
+                placeholderTextColor={muted}
+                editable={!!groupId}
+              />
+              <Pressable
+                onPress={() => addSubGroup(newSubGroupName)}
+                disabled={!canAddSubGroup}
+                hitSlop={10}
+                style={({ pressed }) => [
+                  styles.iconBtn,
+                  { opacity: !canAddSubGroup ? 0.35 : pressed ? 0.7 : 1 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Ajouter un sous-groupe"
+              >
+                <Ionicons name="add" size={22} color={text} />
+              </Pressable>
+            </View>
 
-              {(subGroups as any[]).length === 0 ? (
+            <View style={styles.subGroupsGrid}>
+              {subGroups.length === 0 ? (
                 <View style={[styles.body, styles.center]}>
                   <Text style={[styles.helperText, { color: muted }]}>
                     Aucun sous-groupe pour ce groupe.
                   </Text>
                 </View>
               ) : (
-                (subGroups as any[]).map((sg) => {
+                subGroups.map((sg) => {
                   const value = subGroupDraftNames[sg.id] ?? sg.name ?? "";
 
                   return (
@@ -451,6 +478,7 @@ const styles = StyleSheet.create({
 
   topRow: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "flex-end",
     gap: 12,
   },
@@ -495,7 +523,6 @@ const styles = StyleSheet.create({
   },
 
   body: { flex: 1, padding: 16 },
-
   center: { alignItems: "center", justifyContent: "center" },
 
   title: { fontSize: 18, fontWeight: "800" },
@@ -520,6 +547,7 @@ const styles = StyleSheet.create({
 
   subGroupsScroll: { flex: 1 },
   subGroupsContent: { padding: 16 },
+  createSubGroupBtn: { marginBottom: 20 },
 
   subGroupsGrid: {
     flexDirection: "row",

@@ -3,8 +3,9 @@ import type { AuthState } from "@/slices/authSlice";
 
 type StateWithAuth = { auth: AuthState };
 
-export type GroupRef = { id: number; name: string };
-export type SubGroupRef = { id: number; name: string };
+// ✅ Group inclut directement ses sous-groupes
+export type Group = { id: string; name: string; subGroup: SubGroup[] };
+export type SubGroup = { id: string; name: string };
 
 export enum Status {
   ACTIF = "Actif",
@@ -21,8 +22,8 @@ export type Contact = {
   phoneNumber: [string, string];
   lastContact: string;
   lastEmail: string;
-  group: GroupRef;
-  subGroup: SubGroupRef;
+  groupId: string;
+  subGroupId: string;
 };
 
 export type ContactEmail = {
@@ -31,69 +32,65 @@ export type ContactEmail = {
   subject: string;
 };
 
-const mockGroups: GroupRef[] = [
-  { id: 1, name: "Groupe A" },
-  { id: 2, name: "Groupe B" },
+const mockGroups: Group[] = [
+  {
+    id: "1",
+    name: "Groupe A",
+    subGroup: [
+      { id: "1", name: "Sous-Groupe A1" },
+      { id: "2", name: "Sous-Groupe A2" },
+    ],
+  },
+  {
+    id: "2",
+    name: "Groupe B",
+    subGroup: [{ id: "1", name: "Sous-Groupe B1" }],
+  },
 ];
 
-const mockSubGroupsByGroupId: Record<number, SubGroupRef[]> = {
-  1: [
-    { id: 10, name: "Sous-Groupe A1" },
-    { id: 11, name: "Sous-Groupe A2" },
-  ],
-  2: [
-    { id: 20, name: "Sous-Groupe B1" },
-    { id: 21, name: "Sous-Groupe B2" },
-  ],
-};
-
-function makeMockContactsForGroup(groupId: number): Contact[] {
-  const group = mockGroups.find((g) => g.id === groupId) ?? mockGroups[0];
-  const subGroups = mockSubGroupsByGroupId[group.id] ?? [];
-  const now = Date.now();
-
-  const base: Omit<Contact, "group" | "subGroup" | "id">[] = [
+function makeMockContactsForGroup(groupId: string): Contact[] {
+  const base: Contact[] = [
     {
+      id: "0",
+      groupId: "1",
+      subGroupId: "1",
       firstName: "Sophie",
       lastName: "Martin",
       function: "Responsable RH",
       status: Status.ACTIF,
       email: "sophie.martin@example.com",
       phoneNumber: ["+33 6 00 00 00 02", "+33 1 00 00 00 02"],
-      lastContact: new Date(now - 1000 * 60 * 60 * 6).toISOString(),
+      lastContact: new Date().toISOString(),
       lastEmail: "Rappel des echeances de départ",
     },
     {
+      id: "1",
+      groupId: "1",
+      subGroupId: "1",
       firstName: "Alex",
       lastName: "Bernard",
       function: "Technicien",
       status: Status.INACTIF,
       email: "alex.bernard@example.com",
       phoneNumber: ["+33 6 00 00 00 03", "+33 1 00 00 00 03"],
-      lastContact: new Date(now - 1000 * 60 * 60 * 24 * 30).toISOString(),
+      lastContact: new Date().toISOString(),
       lastEmail: "Demande de Depot de fond",
     },
     {
+      id: "2",
+      groupId: "1",
+      subGroupId: "2",
       firstName: "Jaime",
       lastName: "Dos Santos",
       function: "Chef de projet",
       status: Status.INACTIF,
       email: "jaime@example.com",
       phoneNumber: ["+33 6 00 00 00 01", "+33 1 00 00 00 01"],
-      lastContact: new Date(now - 1000 * 60 * 60 * 24 * 2).toISOString(),
+      lastContact: new Date().toISOString(),
       lastEmail: "Demande de Depot de fond",
     },
   ];
-
-  return base.map((c, idx) => ({
-    id: `${group.id}-${idx}`, // ✅ id stable par groupe
-    ...c,
-    group,
-    subGroup: subGroups[idx % Math.max(1, subGroups.length)] ?? {
-      id: -1,
-      name: "Sans sous-groupe",
-    },
-  }));
+  return base.filter((contact) => contact.groupId === groupId);
 }
 
 // petit hash déterministe pour générer des emails stables
@@ -120,7 +117,7 @@ function makeMockContactEmails(contactId: string): ContactEmail[] {
   const now = Date.now();
 
   return Array.from({ length: count }).map((_, i) => {
-    const offsetDays = i * (2 + ((seed + i) % 4)); // espacement variable
+    const offsetDays = i * (2 + ((seed + i) % 4));
     const sentAt = new Date(
       now - offsetDays * 24 * 60 * 60 * 1000
     ).toISOString();
@@ -145,29 +142,14 @@ export const contactsApi = createApi({
     },
   }),
   endpoints: (builder) => ({
-    getContactsByGroup: builder.query<Contact[], { groupId: number }>({
+    getContactsByGroup: builder.query<Contact[], { groupId: string }>({
       async queryFn({ groupId }) {
         const data = makeMockContactsForGroup(groupId);
-        return {
-          data: [
-            ...data,
-            ...data,
-            ...data,
-            ...data,
-            ...data,
-            ...data,
-            ...data,
-            ...data,
-            ...data,
-            ...data,
-            ...data,
-            ...data,
-          ],
-        };
+        return { data };
       },
     }),
 
-    getGroups: builder.query<GroupRef[], void>({
+    getGroups: builder.query<Group[], void>({
       async queryFn() {
         const sleep = (ms: number) =>
           new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -178,16 +160,7 @@ export const contactsApi = createApi({
       },
     }),
 
-    getSubGroupsByGroup: builder.query<SubGroupRef[], { groupId: number }>({
-      async queryFn({ groupId }) {
-        const sleep = (ms: number) =>
-          new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-        await sleep(2000);
-
-        return { data: mockSubGroupsByGroupId[groupId] ?? [] };
-      },
-    }),
+    // ✅ supprimé: getSubGroupsByGroup
 
     getContactEmails: builder.query<ContactEmail[], { contactId: string }>({
       async queryFn({ contactId }) {
@@ -201,6 +174,5 @@ export const contactsApi = createApi({
 export const {
   useGetContactsByGroupQuery,
   useGetGroupsQuery,
-  useGetSubGroupsByGroupQuery,
-  useGetContactEmailsQuery, // ✅ export hook
+  useGetContactEmailsQuery,
 } = contactsApi;

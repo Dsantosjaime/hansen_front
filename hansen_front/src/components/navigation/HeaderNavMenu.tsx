@@ -26,7 +26,7 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
         label: "Administration",
         type: "dropdown",
         items: [
-          { label: "Roles", href: "/admin/roles" },
+          { label: "Roles", href: "/admin/userRulesGroups" },
           { label: "Utilisateurs", href: "/admin/users" },
         ],
       },
@@ -45,20 +45,20 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
         type: "dropdown",
         items: [
           { label: "Templates d'emails", href: "/email/templates" },
-          { label: "Emails", href: "/email/emails" },
+          { label: "Emails", href: "/email" },
         ],
       },
       {
         key: "plugin",
         label: "Plugin",
         type: "link",
-        href: "/plugin/configuration",
+        href: "/pluginParams",
       },
       {
         key: "export",
         label: "Export",
         type: "link",
-        href: "/export/contacts",
+        href: "/extract",
       },
     ],
     []

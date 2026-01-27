@@ -4,6 +4,7 @@ import { Provider } from "react-redux";
 import { store } from "@/store/store";
 import { useAppSelector } from "@/store/hooks";
 import { AppHeader } from "@/components/navigation/AppHeader";
+import "@/constants/global.css";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const token = useAppSelector((s) => s.auth.token);

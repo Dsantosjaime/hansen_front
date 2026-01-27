@@ -20,7 +20,7 @@ import {
 import { Select } from "../ui/Select";
 import type { SelectOption } from "@/components/ui/select.types";
 
-type CellUpdatePayload<TData> = {
+export type CellUpdatePayload<TData> = {
   row: TData;
   rowIndex: number;
   columnId: string;
@@ -146,11 +146,7 @@ function EditableCell<TData extends object>(props: {
   );
 }
 
-/**
- * DataGrid (TanStack Table) rendu en composants RN
- * => permet StyleSheet.create + layout flex (grid qui prend toute la hauteur).
- */
-export function DataGrid<TData extends object>({
+export function Grid<TData extends object>({
   data,
   columns,
   pageSize = 10,

@@ -15,25 +15,24 @@ import { skipToken } from "@reduxjs/toolkit/query";
 type Mode = "create" | "edit";
 
 type ContactDraft = {
-  id?: string | number;
-
+  id?: string;
   firstName: string;
   lastName: string;
   email: string;
   function: string;
   status: Status;
   phoneNumber: [string, string];
-  group: { id: number; name: string };
-  subGroup: { id: number; name: string };
+  groupId: string;
+  subGroupId: string;
   lastContact: string;
   lastEmail: string;
 };
 
 type Props = {
   mode: Mode;
-  initialContact?: Contact | null; // le contact trouvé depuis la grid
-  defaultGroup?: { id: number; name: string } | null; // utile en create
-  defaultSubGroup?: { id: number; name: string } | null; // utile en create
+  initialContact?: Contact | null;
+  groupIdSelected?: string | null;
+  subGroupIdSelected?: string | null;
   onClose: () => void;
 };
 
@@ -46,16 +45,16 @@ function makeDraftFromContact(c: Contact): ContactDraft {
     function: c.function ?? "",
     status: c.status ?? Status.ACTIF,
     phoneNumber: c.phoneNumber ?? ["", ""],
-    group: c.group,
-    subGroup: c.subGroup,
+    groupId: c.groupId,
+    subGroupId: c.subGroupId,
     lastContact: c.lastContact ?? "",
     lastEmail: c.lastEmail ?? "",
   };
 }
 
 function makeEmptyDraft(
-  defaultGroup?: { id: number; name: string } | null,
-  defaultSubGroup?: { id: number; name: string } | null
+  seletedGroupId?: string | null,
+  selectedSubGroupId?: string | null
 ): ContactDraft {
   return {
     firstName: "",
@@ -64,8 +63,8 @@ function makeEmptyDraft(
     function: "",
     status: Status.ACTIF,
     phoneNumber: ["", ""],
-    group: defaultGroup ?? { id: -1, name: "" },
-    subGroup: defaultSubGroup ?? { id: -1, name: "" },
+    groupId: seletedGroupId ?? "-1",
+    subGroupId: selectedSubGroupId ?? "-1",
     lastContact: "",
     lastEmail: "",
   };
@@ -74,8 +73,8 @@ function makeEmptyDraft(
 export function ContactInfos({
   mode,
   initialContact,
-  defaultGroup,
-  defaultSubGroup,
+  groupIdSelected,
+  subGroupIdSelected,
   onClose,
 }: Props) {
   const background = useThemeColor({}, "backgroundDark");
@@ -88,8 +87,8 @@ export function ContactInfos({
   const initialDraft = useMemo<ContactDraft>(() => {
     if (mode === "edit" && initialContact)
       return makeDraftFromContact(initialContact);
-    return makeEmptyDraft(defaultGroup, defaultSubGroup);
-  }, [mode, initialContact, defaultGroup, defaultSubGroup]);
+    return makeEmptyDraft(groupIdSelected, subGroupIdSelected);
+  }, [mode, initialContact, groupIdSelected, subGroupIdSelected]);
 
   const shouldFetch = mode === "edit" && !!initialContact?.id;
 

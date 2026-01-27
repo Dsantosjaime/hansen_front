@@ -6,11 +6,10 @@ import {
   Status,
   useGetContactsByGroupQuery,
   useGetGroupsQuery,
-  useGetSubGroupsByGroupQuery,
 } from "@/services/contactsApi";
 import { Select } from "@/components/ui/Select";
 import type { SelectOption } from "@/components/ui/select.types";
-import { DataGrid, GridColumnDef } from "@/components/grid/Grid";
+import { Grid, GridColumnDef } from "@/components/grid/Grid";
 import { ContactInfos } from "@/components/grid/ContactInfos";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -25,8 +24,10 @@ export default function ContactsScreen() {
 
   const { data: groups = [], isLoading: groupsLoading } = useGetGroupsQuery();
 
-  const [groupId, setGroupId] = useState<number | null>(null);
-  const [subGroupId, setSubGroupId] = useState<number | null>(null);
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [subGroupId, setSubGroupId] = useState<string | null>(null);
+
+  console.log(subGroupId);
 
   const [panel, setPanel] = useState<PanelState>(null);
 
@@ -41,27 +42,29 @@ export default function ContactsScreen() {
     }
   }, [groups, groupId]);
 
-  const groupOptions = useMemo<SelectOption<number>[]>(
+  const groupOptions = useMemo<SelectOption<string>[]>(
     () => groups.map((g) => ({ value: g.id, label: g.name })),
     [groups]
   );
 
-  const { data: subGroups = [] } = useGetSubGroupsByGroupQuery(
-    groupId ? { groupId } : (undefined as any)
+  // ✅ Les sous-groupes sont maintenant inclus dans le groupe sélectionné
+  const subGroups = useMemo(() => {
+    if (!groupId) return [];
+    return groups.find((g) => g.id === groupId)?.subGroup ?? [];
+  }, [groups, groupId]);
+
+  const subGroupOptions = useMemo<SelectOption<string>[]>(
+    () => subGroups.map((sg) => ({ value: sg.id, label: sg.name })),
+    [subGroups]
   );
 
   const { data: contacts = [] } = useGetContactsByGroupQuery(
     groupId ? { groupId } : (undefined as any)
   );
 
-  const subGroupOptions = useMemo<SelectOption<number>[]>(
-    () => subGroups.map((sg) => ({ value: sg.id, label: sg.name })),
-    [subGroups]
-  );
-
   const filteredContacts = useMemo(() => {
     if (!subGroupId) return contacts;
-    return contacts.filter((c) => c.subGroup.id === subGroupId);
+    return contacts.filter((c) => c.subGroupId === subGroupId);
   }, [contacts, subGroupId]);
 
   const formatDateFR = (value: unknown) => {
@@ -126,9 +129,9 @@ export default function ContactsScreen() {
       },
       {
         id: "actions",
-        header: "", // pas de titre
-        enableSorting: false, // pas de tri sur cette colonne
-        meta: { width: 56 }, // petite colonne fixe
+        header: "",
+        enableSorting: false,
+        meta: { width: 56 },
         cell: ({ row }) => (
           <Pressable
             onPress={() => openContactInfos(row.original)}
@@ -153,16 +156,6 @@ export default function ContactsScreen() {
     []
   );
 
-  const defaultGroup = useMemo(() => {
-    if (!groupId) return null;
-    return groups.find((g) => g.id === groupId) ?? null;
-  }, [groups, groupId]);
-
-  const defaultSubGroup = useMemo(() => {
-    if (!subGroupId) return null;
-    return subGroups.find((sg) => sg.id === subGroupId) ?? null;
-  }, [subGroups, subGroupId]);
-
   const selectedContact =
     panel?.type === "edit"
       ? filteredContacts.find((c) => c.id === panel.contactId) ?? null
@@ -174,7 +167,7 @@ export default function ContactsScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: backgroundLight }]}>
       <View style={styles.toolbar}>
-        <Select<number>
+        <Select<string>
           label="Groupe"
           value={groupId}
           options={groupOptions}
@@ -187,7 +180,7 @@ export default function ContactsScreen() {
           disabled={groupsLoading || groupOptions.length === 0}
         />
 
-        <Select<number>
+        <Select<string>
           label="Sous-Groupe"
           value={subGroupId}
           options={subGroupOptions}
@@ -197,7 +190,6 @@ export default function ContactsScreen() {
           disabled={!groupId || subGroupOptions.length === 0}
         />
 
-        {/* Bouton Ajouter Contact (grisé si sous-groupe non sélectionné) */}
         <Pressable
           onPress={() => {
             if (!canAddContact) return;
@@ -216,9 +208,8 @@ export default function ContactsScreen() {
 
       <View style={styles.content}>
         <View style={[styles.panelContainer, { borderColor: border }]}>
-          {/* GRID (reste montée, simplement cachée) */}
           <View style={{ flex: 1, display: isInfosOpen ? "none" : "flex" }}>
-            <DataGrid
+            <Grid
               data={filteredContacts}
               columns={columns}
               pageSize={10}
@@ -227,12 +218,13 @@ export default function ContactsScreen() {
               }}
             />
           </View>
+
           <View style={{ flex: 1, display: isInfosOpen ? "flex" : "none" }}>
             <ContactInfos
               mode={panel?.type === "create" ? "create" : "edit"}
               initialContact={selectedContact}
-              defaultGroup={defaultGroup}
-              defaultSubGroup={defaultSubGroup}
+              groupIdSelected={groupId}
+              subGroupIdSelected={subGroupId}
               onClose={() => setPanel(null)}
             />
           </View>
@@ -252,14 +244,12 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   content: { marginTop: 16, flex: 1 },
-
   panelContainer: {
     flex: 1,
     borderRadius: 14,
     alignItems: "stretch",
     justifyContent: "flex-start",
   },
-
   addBtn: {
     height: 36,
     paddingHorizontal: 14,
