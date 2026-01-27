@@ -1,12 +1,12 @@
-import React, { memo, useCallback } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import type { NativeStackHeaderProps } from "@react-navigation/native-stack";
+import React, { memo, useCallback, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useThemeColor } from "@/hooks/use-theme-color";
-import { useAppSelector } from "@/store/hooks";
-import { useLogoutMutation } from "@/services/authApi";
+import { logout } from "@/slices/authSlice";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { HeaderNavMenu } from "./HeaderNavMenu";
 
 export const AppHeader = memo(function AppHeader(
@@ -18,12 +18,16 @@ export const AppHeader = memo(function AppHeader(
   const text = useThemeColor({}, "text");
   const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
 
-  const userName = useAppSelector((s) => s.auth.user?.name);
-  const [logout, { isLoading }] = useLogoutMutation();
+  const dispatch = useAppDispatch();
+  const userName = useAppSelector((s) => s.auth.user?.username);
+
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const onLogout = useCallback(() => {
-    if (!isLoading) logout();
-  }, [isLoading, logout]);
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    dispatch(logout());
+  }, [dispatch, isLoggingOut]);
 
   const canGoBack = !!props.back;
 
@@ -41,16 +45,18 @@ export const AppHeader = memo(function AppHeader(
       <View style={styles.inner}>
         <View style={styles.left}>
           <Pressable
-            onPress={props.navigation.goBack}
+            onPress={() => {
+              if (canGoBack) props.navigation.goBack();
+              // sinon tu peux décider de naviguer vers Home si tu veux
+            }}
             hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel="Retour"
             style={styles.backBtn}
           >
-            {canGoBack && (
+            {canGoBack ? (
               <Ionicons name="chevron-back" size={22} color={text} />
-            )}
-            {!canGoBack && (
+            ) : (
               <Ionicons name="home-outline" size={22} color={text} />
             )}
           </Pressable>
@@ -79,9 +85,10 @@ export const AppHeader = memo(function AppHeader(
                 hitSlop={10}
                 accessibilityRole="button"
                 accessibilityLabel="Se déconnecter"
+                disabled={isLoggingOut}
                 style={({ pressed }) => [
                   styles.logoutBtn,
-                  { opacity: pressed || isLoading ? 0.6 : 1 },
+                  { opacity: pressed || isLoggingOut ? 0.6 : 1 },
                 ]}
               >
                 <Ionicons name="log-out-outline" size={20} color={text} />

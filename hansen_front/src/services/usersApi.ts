@@ -1,10 +1,5 @@
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
-
-export type StateWithAuth = {
-  auth: {
-    token?: string | null;
-  };
-};
+import { createApi } from "@reduxjs/toolkit/query/react";
+import { baseQueryWithKeycloakRefresh } from "./baseQueryWithKeycloak";
 
 export type User = {
   id: string;
@@ -50,14 +45,7 @@ const uid = () => `u-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 export const usersApi = createApi({
   reducerPath: "usersApi",
   tagTypes: ["Users"],
-  baseQuery: fetchBaseQuery({
-    baseUrl: "https://api.example.com",
-    prepareHeaders: (headers, { getState }) => {
-      const token = (getState() as StateWithAuth).auth.token;
-      if (token) headers.set("authorization", `Bearer ${token}`);
-      return headers;
-    },
-  }),
+  baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
     getUsers: builder.query<User[], void>({
       async queryFn() {

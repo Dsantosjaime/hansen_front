@@ -1,18 +1,16 @@
 // src/store/store.ts
-import { configureStore } from "@reduxjs/toolkit";
-import { authReducer } from "@/slices/authSlice";
-import { authApi } from "@/services/authApi";
 import { contactsApi } from "@/services/contactsApi";
+import { emailsApi } from "@/services/emailsApi";
 import { permissionDomainsApi } from "@/services/permissionDomainsApi";
+import { pluginParamsApi } from "@/services/pluginParamsApi";
 import { userRulesGroupsApi } from "@/services/userRulesGroupsApi";
 import { usersApi } from "@/services/usersApi";
-import { pluginParamsApi } from "@/services/pluginParamsApi";
-import { emailsApi } from "@/services/emailsApi";
+import { authReducer } from "@/slices/authSlice";
+import { configureStore } from "@reduxjs/toolkit";
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
-    [authApi.reducerPath]: authApi.reducer,
     [contactsApi.reducerPath]: contactsApi.reducer,
     [permissionDomainsApi.reducerPath]: permissionDomainsApi.reducer,
     [userRulesGroupsApi.reducerPath]: userRulesGroupsApi.reducer,
@@ -22,7 +20,6 @@ export const store = configureStore({
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
-      authApi.middleware,
       contactsApi.middleware,
       permissionDomainsApi.middleware,
       userRulesGroupsApi.middleware,

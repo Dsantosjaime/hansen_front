@@ -1,5 +1,5 @@
-// src/services/pluginParamsApi.ts
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
+import { createApi } from "@reduxjs/toolkit/query/react";
+import { baseQueryWithKeycloakRefresh } from "./baseQueryWithKeycloak";
 
 export type StateWithAuth = {
   auth: {
@@ -51,14 +51,7 @@ const uid = (prefix: string) =>
 export const pluginParamsApi = createApi({
   reducerPath: "pluginParamsApi",
   tagTypes: ["OmitedFunctions", "NameDiscriminators"],
-  baseQuery: fetchBaseQuery({
-    baseUrl: "/api",
-    prepareHeaders: (headers, { getState }) => {
-      const token = (getState() as StateWithAuth).auth.token;
-      if (token) headers.set("authorization", `Bearer ${token}`);
-      return headers;
-    },
-  }),
+  baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
     // --------------------
     // Omited Functions

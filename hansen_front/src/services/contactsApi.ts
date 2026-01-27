@@ -1,9 +1,6 @@
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
-import type { AuthState } from "@/slices/authSlice";
+import { createApi } from "@reduxjs/toolkit/query/react";
+import { baseQueryWithKeycloakRefresh } from "./baseQueryWithKeycloak";
 
-type StateWithAuth = { auth: AuthState };
-
-// ✅ Group inclut directement ses sous-groupes
 export type Group = { id: string; name: string; subGroup: SubGroup[] };
 export type SubGroup = { id: string; name: string };
 
@@ -133,14 +130,7 @@ function makeMockContactEmails(contactId: string): ContactEmail[] {
 
 export const contactsApi = createApi({
   reducerPath: "contactsApi",
-  baseQuery: fetchBaseQuery({
-    baseUrl: "https://api.example.com",
-    prepareHeaders: (headers, { getState }) => {
-      const token = (getState() as StateWithAuth).auth.token;
-      if (token) headers.set("authorization", `Bearer ${token}`);
-      return headers;
-    },
-  }),
+  baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
     getContactsByGroup: builder.query<Contact[], { groupId: string }>({
       async queryFn({ groupId }) {

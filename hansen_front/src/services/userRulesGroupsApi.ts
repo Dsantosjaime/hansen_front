@@ -1,5 +1,6 @@
 import { UserRulesGroup } from "@/types/userRulesGroup";
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
+import { createApi } from "@reduxjs/toolkit/query/react";
+import { baseQueryWithKeycloakRefresh } from "./baseQueryWithKeycloak";
 
 export type StateWithAuth = {
   auth: {
@@ -13,14 +14,7 @@ const sleep = (ms: number) =>
 export const userRulesGroupsApi = createApi({
   reducerPath: "userRulesGroupsApi",
   tagTypes: ["UserRulesGroups"],
-  baseQuery: fetchBaseQuery({
-    baseUrl: "/api",
-    prepareHeaders: (headers, { getState }) => {
-      const token = (getState() as StateWithAuth).auth.token;
-      if (token) headers.set("authorization", `Bearer ${token}`);
-      return headers;
-    },
-  }),
+  baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
     getUserRulesGroups: builder.query<UserRulesGroup[], void>({
       async queryFn() {

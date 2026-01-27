@@ -1,9 +1,6 @@
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
+import { createApi } from "@reduxjs/toolkit/query/react";
+import { baseQueryWithKeycloakRefresh } from "./baseQueryWithKeycloak";
 
-/**
- * Adapte ce type à ton RootState réel (souvent exporté par ton store).
- * L’important ici: `state.auth.token`.
- */
 export type StateWithAuth = {
   auth: {
     token?: string | null;
@@ -33,14 +30,7 @@ const sleep = (ms: number) =>
 export const permissionDomainsApi = createApi({
   reducerPath: "permissionDomainsApi",
   tagTypes: ["PermissionDomains"],
-  baseQuery: fetchBaseQuery({
-    baseUrl: "/api",
-    prepareHeaders: (headers, { getState }) => {
-      const token = (getState() as StateWithAuth).auth.token;
-      if (token) headers.set("authorization", `Bearer ${token}`);
-      return headers;
-    },
-  }),
+  baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
     /**
      * MOCK + délai (2s)

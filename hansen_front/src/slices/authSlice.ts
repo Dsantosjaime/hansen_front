@@ -1,6 +1,8 @@
-import type { PayloadAction } from "@reduxjs/toolkit";
+// src/store/authSlice.ts
+import { getWebRedirectUri } from "@/auth/webUrl";
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import type { KeycloakTokenParsed } from "keycloak-js";
+import { Platform } from "react-native";
 import { keycloak } from "../auth/keycloak";
 
 export type AuthStatus =
@@ -17,24 +19,22 @@ export type AppUser = {
   roles: string[];
 };
 
-type AuthState = {
+export type AuthState = {
   status: AuthStatus;
+  token: string | null;
   user: AppUser | null;
   error?: string;
 };
 
 const initialState: AuthState = {
   status: "idle",
+  token: null,
   user: null,
 };
 
 function extractUserFromToken(token?: KeycloakTokenParsed): AppUser | null {
   if (!token) return null;
-
-  // Keycloak standard claims (peuvent varier selon config)
-  const roles =
-    // realm_access.roles est très fréquent
-    (token.realm_access?.roles as string[] | undefined) ?? [];
+  const roles = (token.realm_access?.roles as string[] | undefined) ?? [];
 
   return {
     id: token.sub,
@@ -47,30 +47,38 @@ function extractUserFromToken(token?: KeycloakTokenParsed): AppUser | null {
 }
 
 export const initAuth = createAsyncThunk("auth/init", async () => {
-  // check-sso: ne force pas la redirection -> utile pour afficher /login
+  if (Platform.OS !== "web") {
+    return {
+      authenticated: false,
+      token: null as string | null,
+      user: null as AppUser | null,
+    };
+  }
+
   const authenticated = await keycloak.init({
     onLoad: "check-sso",
     pkceMethod: "S256",
-    silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
     checkLoginIframe: true,
   });
 
   return {
     authenticated,
+    token: keycloak.token ?? null,
     user: extractUserFromToken(keycloak.tokenParsed),
   };
 });
 
 export const login = createAsyncThunk("auth/login", async () => {
-  // Redirection vers Keycloak
+  if (Platform.OS !== "web") return;
   await keycloak.login({
-    redirectUri: window.location.origin,
+    redirectUri: getWebRedirectUri("/"),
   });
 });
 
 export const logout = createAsyncThunk("auth/logout", async () => {
+  if (Platform.OS !== "web") return;
   await keycloak.logout({
-    redirectUri: `${window.location.origin}/login`,
+    redirectUri: getWebRedirectUri("/auth"),
   });
 });
 
@@ -78,13 +86,17 @@ const authSlice = createSlice({
   name: "auth",
   initialState,
   reducers: {
-    // Utile quand keycloak rafraîchit le token (plus tard on branchera proprement)
-    setUserFromToken(
-      state,
-      action: PayloadAction<{ tokenParsed?: KeycloakTokenParsed }>
-    ) {
-      state.user = extractUserFromToken(action.payload.tokenParsed);
-      state.status = state.user ? "authenticated" : "unauthenticated";
+    setToken(state, action: { payload: string | null }) {
+      state.token = action.payload;
+      state.status = action.payload ? "authenticated" : "unauthenticated";
+    },
+    setUser(state, action: { payload: AppUser | null }) {
+      state.user = action.payload;
+    },
+    syncFromKeycloak(state) {
+      state.token = keycloak.token ?? null;
+      state.user = extractUserFromToken(keycloak.tokenParsed);
+      state.status = state.token ? "authenticated" : "unauthenticated";
     },
   },
   extraReducers: (builder) => {
@@ -94,6 +106,7 @@ const authSlice = createSlice({
         state.error = undefined;
       })
       .addCase(initAuth.fulfilled, (state, action) => {
+        state.token = action.payload.token;
         state.user = action.payload.user;
         state.status = action.payload.authenticated
           ? "authenticated"
@@ -102,21 +115,14 @@ const authSlice = createSlice({
       .addCase(initAuth.rejected, (state, action) => {
         state.status = "error";
         state.error = action.error.message ?? "Auth init failed";
-      })
-
-      // login/logout redirigent : ces states sont rarement visibles, mais on garde propre
-      .addCase(login.pending, (state) => {
-        state.error = undefined;
-      })
-      .addCase(logout.pending, (state) => {
-        state.error = undefined;
       });
   },
 });
 
-export const { setUserFromToken } = authSlice.actions;
+export const { setToken, setUser, syncFromKeycloak } = authSlice.actions;
 export const authReducer = authSlice.reducer;
 
-// Selectors
+// selectors
+export const selectAuthToken = (s: { auth: AuthState }) => s.auth.token;
 export const selectAuthStatus = (s: { auth: AuthState }) => s.auth.status;
 export const selectUser = (s: { auth: AuthState }) => s.auth.user;

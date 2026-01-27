@@ -1,8 +1,7 @@
-// src/components/navigation/HeaderNavMenu.web.tsx
-import React, { memo, useCallback, useMemo, useState } from "react";
+import { useThemeColor } from "@/hooks/use-theme-color";
 import * as Menubar from "@radix-ui/react-menubar";
 import { Href, router } from "expo-router";
-import { useThemeColor } from "@/hooks/use-theme-color";
+import React, { memo, useCallback, useMemo, useState } from "react";
 
 type NavItem = { label: string; href: string };
 type NavCategory =

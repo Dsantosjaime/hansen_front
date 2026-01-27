@@ -1,7 +1,5 @@
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
-import type { AuthState } from "@/slices/authSlice";
-
-type StateWithAuth = { auth: AuthState };
+import { createApi } from "@reduxjs/toolkit/query/react";
+import { baseQueryWithKeycloakRefresh } from "./baseQueryWithKeycloak";
 
 export type Email = {
   id: string;
@@ -56,7 +54,6 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const uid = () => `email-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const toEmailGrid = (e: Email): EmailGrid => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { groups, ...rest } = e;
   return rest;
 };
@@ -64,14 +61,7 @@ const toEmailGrid = (e: Email): EmailGrid => {
 export const emailsApi = createApi({
   reducerPath: "emailsApi",
   tagTypes: ["Emails", "Email"],
-  baseQuery: fetchBaseQuery({
-    baseUrl: "https://api.example.com",
-    prepareHeaders: (headers, { getState }) => {
-      const token = (getState() as StateWithAuth).auth.token;
-      if (token) headers.set("authorization", `Bearer ${token}`);
-      return headers;
-    },
-  }),
+  baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
     getEmails: builder.query<EmailGrid[], void>({
       async queryFn() {
