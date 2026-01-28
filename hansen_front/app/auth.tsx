@@ -1,42 +1,56 @@
+import { useThemeColor } from "@/hooks/use-theme-color";
 import { login, selectAuthStatus } from "@/slices/authSlice";
 import { Redirect } from "expo-router";
 import React from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useAppDispatch, useAppSelector } from "../src/store/hooks";
 
 export default function AuthScreen() {
   const dispatch = useAppDispatch();
   const status = useAppSelector(selectAuthStatus);
+  const backgroundSecond = useThemeColor({}, "backgroundSecond");
+  const backgroundLight = useThemeColor({}, "backgroundLight");
 
   if (status === "authenticated") {
-    return <Redirect href="/" />;
+    return <Redirect href="/hansen" />;
   }
 
   return (
-    <View style={{ padding: 16, maxWidth: 520 }}>
-      <Text style={{ fontSize: 24, fontWeight: "600", marginBottom: 8 }}>
-        Connexion
-      </Text>
-
-      <Text style={{ marginBottom: 12 }}>
-        Vous serez redirigé vers Keycloak. En cas d’oubli, utilisez “Mot de
-        passe oublié” sur la page Keycloak.
-      </Text>
+    <View style={[styles.container, { backgroundColor: backgroundSecond }]}>
+      <Text style={[styles.title, { color: backgroundLight }]}>Connexion</Text>
 
       <Pressable
         onPress={() => dispatch(login())}
-        style={{
-          backgroundColor: "#111827",
-          paddingVertical: 10,
-          paddingHorizontal: 12,
-          borderRadius: 6,
-          alignSelf: "flex-start",
-          opacity: status === "initializing" ? 0.5 : 1,
-        }}
+        style={[styles.button, { backgroundColor: backgroundLight }]}
         disabled={status === "initializing"}
       >
-        <Text style={{ color: "white", fontWeight: "600" }}>Se connecter</Text>
+        <Text style={[styles.textBtn, { color: backgroundSecond }]}>
+          Se connecter
+        </Text>
       </Pressable>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  title: {
+    fontSize: 35,
+    fontWeight: "600",
+    marginBottom: 20,
+  },
+  button: {
+    borderRadius: 12,
+    width: 200,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  textBtn: {
+    fontWeight: "600",
+  },
+});

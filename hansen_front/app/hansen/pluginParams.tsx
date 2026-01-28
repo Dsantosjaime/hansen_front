@@ -1,24 +1,24 @@
+import { useThemeColor } from "@/hooks/use-theme-color";
+import {
+  useAddNameDiscriminatorMutation,
+  useAddOmitedFunctionMutation,
+  useDeleteNameDiscriminatorMutation,
+  useDeleteOmitedFunctionMutation,
+  useGetNameDiscriminatorQuery,
+  useGetOmitedFunctionsQuery,
+  useModifyNameDiscriminatorMutation,
+  useModifyOmitedFunctionMutation,
+} from "@/services/pluginParamsApi";
+import Ionicons from "@expo/vector-icons/build/Ionicons";
 import React, { useCallback, useMemo, useState } from "react";
 import {
-  View,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  Pressable,
-  ScrollView,
+  View,
 } from "react-native";
-import Ionicons from "@expo/vector-icons/build/Ionicons";
-import { useThemeColor } from "@/hooks/use-theme-color";
-import {
-  useGetOmitedFunctionsQuery,
-  useAddOmitedFunctionMutation,
-  useModifyOmitedFunctionMutation,
-  useDeleteOmitedFunctionMutation,
-  useGetNameDiscriminatorQuery,
-  useAddNameDiscriminatorMutation,
-  useModifyNameDiscriminatorMutation,
-  useDeleteNameDiscriminatorMutation,
-} from "@/services/pluginParamsApi";
 
 type DraftMap = Record<string, string>;
 

@@ -25,8 +25,8 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
         label: "Administration",
         type: "dropdown",
         items: [
-          { label: "Roles", href: "/admin/userRulesGroups" },
-          { label: "Utilisateurs", href: "/admin/users" },
+          { label: "Roles", href: "/hansen/admin/userRulesGroups" },
+          { label: "Utilisateurs", href: "/hansen/admin/users" },
         ],
       },
       {
@@ -34,8 +34,8 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
         label: "Suivi",
         type: "dropdown",
         items: [
-          { label: "Groupes / Sous-Groupes", href: "/contacts/group" },
-          { label: "Contacts", href: "/contacts" },
+          { label: "Groupes / Sous-Groupes", href: "/hansen/contacts/group" },
+          { label: "Contacts", href: "/hansen/contacts" },
         ],
       },
       {
@@ -43,21 +43,21 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
         label: "Email",
         type: "dropdown",
         items: [
-          { label: "Templates d'emails", href: "/email/templates" },
-          { label: "Emails", href: "/email" },
+          { label: "Templates d'emails", href: "/hansen/email/templates" },
+          { label: "Emails", href: "/hansen/email" },
         ],
       },
       {
         key: "plugin",
         label: "Plugin",
         type: "link",
-        href: "/pluginParams",
+        href: "/hansen/pluginParams",
       },
       {
         key: "export",
         label: "Export",
         type: "link",
-        href: "/extract",
+        href: "/hansen/extract",
       },
     ],
     []

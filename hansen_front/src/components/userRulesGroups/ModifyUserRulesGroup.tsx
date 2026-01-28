@@ -1,32 +1,40 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { StyleSheet, View, Pressable, Text } from "react-native";
-import { useThemeColor } from "@/hooks/use-theme-color";
-import Ionicons from "@expo/vector-icons/build/Ionicons";
-
 import { TreeList, type TreeNode } from "@/components/ui/TreeList";
-import { Permission } from "@/services/permissionDomainsApi";
-import {
-  PermissionsDomain,
-  PermissionSubDomain,
-} from "@/types/permissionsDomain";
-import { UserRulesGroup } from "@/types/userRulesGroup";
+import { useThemeColor } from "@/hooks/use-theme-color";
+import type {
+  Permission,
+  PermissionGroup,
+  PermissionSubGroup,
+} from "@/types/permissionGroup";
+import type { UserRulesGroup } from "@/types/userRulesGroup";
+import Ionicons from "@expo/vector-icons/build/Ionicons";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export type Props = {
   group: UserRulesGroup;
-  permissionsDomains: PermissionsDomain[];
+  permissionsDomains: PermissionGroup[];
   modifyUserRulesGroup: (nextGroup: UserRulesGroup) => void | Promise<void>;
 };
 
 type CheckedMap = Record<string, boolean>;
 
-function permKey(domainId: string, subDomainId: string, permissionId: string) {
-  return `${domainId}::${subDomainId}::${permissionId}`;
+/**
+ * Tu as indiqué que (subject, action) est unique => on peut s'en servir comme clé.
+ */
+function permKey(subject: string, action: string) {
+  return `${subject}::${action}`;
 }
 
 type PermissionLeafData = {
-  domain: PermissionsDomain;
-  subDomain: PermissionsDomain["subDomain"][number];
-  permission: PermissionsDomain["subDomain"][number]["permissions"][number];
+  domain: PermissionGroup;
+  subDomain: PermissionSubGroup;
+  permission: Permission;
 };
 
 export default function ModifyUserRulesGroup({
@@ -36,40 +44,53 @@ export default function ModifyUserRulesGroup({
 }: Props) {
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
 
+  /**
+   * Important: si modifyUserRulesGroup est async et que le parent met à jour group
+   * avec un délai, on évite les "stale props" en cumulant sur une ref.
+   */
+  const groupRef = useRef<UserRulesGroup>(group);
+  useEffect(() => {
+    groupRef.current = group;
+  }, [group]);
+
   // 1) Adapter -> Tree nodes
   const nodes = useMemo<TreeNode<PermissionLeafData>[]>(() => {
     return permissionsDomains.map((domain) => ({
       id: `domain:${domain.id}`,
       label: domain.name,
-      children: domain.subDomain.map((sd) => ({
-        id: `sub:${domain.id}:${sd.id}`,
-        label: sd.name,
-        children: sd.permissions.map((p) => ({
-          id: permKey(domain.id, sd.id, p.id), // clé unique "checkbox"
-          label: p.name,
-          data: { domain, subDomain: sd, permission: p },
-        })),
+      children: domain.permissionSubGroup.map((subGroup) => ({
+        id: `sub:${domain.id}:${subGroup.name}`,
+        label: subGroup.name,
+        children: subGroup.permissions.map((p) => {
+          // node.id doit être unique dans l'arbre; on inclut le contexte + la clé permission
+          const key = permKey(p.subject, p.action);
+          return {
+            id: `perm:${domain.id}:${subGroup.name}:${key}`,
+            label: p.action,
+            data: { domain, subDomain: subGroup, permission: p },
+          };
+        }),
       })),
     }));
   }, [permissionsDomains]);
 
-  // 2) checked map initial depuis group (clé = permKey)
+  // 2) checked map initial depuis group.permissions
   const initialCheckedMap = useMemo<CheckedMap>(() => {
     const checked: CheckedMap = {};
 
     for (const domain of permissionsDomains) {
-      for (const subDomain of domain.subDomain) {
+      for (const subDomain of domain.permissionSubGroup) {
         for (const permission of subDomain.permissions) {
-          const key = permKey(domain.id, subDomain.id, permission.id);
+          const key = permKey(permission.subject, permission.action);
           checked[key] = hasPermissionInGroup(
             group,
-            domain.id,
-            subDomain.id,
-            permission.id
+            permission.subject,
+            permission.action
           );
         }
       }
     }
+
     return checked;
   }, [group, permissionsDomains]);
 
@@ -82,27 +103,30 @@ export default function ModifyUserRulesGroup({
 
   const togglePermission = useCallback(
     async (leaf: PermissionLeafData) => {
-      const key = permKey(
-        leaf.domain.id,
-        leaf.subDomain.id,
-        leaf.permission.id
-      );
-      const currentlyChecked = !!checkedByKey[key];
-      const nextChecked = !currentlyChecked;
+      const key = permKey(leaf.permission.subject, leaf.permission.action);
 
-      setCheckedByKey((prev) => ({ ...prev, [key]: nextChecked }));
+      // Calculer nextChecked depuis l'état le plus à jour
+      let nextChecked = false;
+      setCheckedByKey((prev) => {
+        const currentlyChecked = !!prev[key];
+        nextChecked = !currentlyChecked;
+        return { ...prev, [key]: nextChecked };
+      });
+
+      const baseGroup = groupRef.current;
 
       const nextGroup = applyPermissionToggleToGroup(
-        group,
-        leaf.domain,
-        leaf.subDomain,
+        baseGroup,
         leaf.permission,
         nextChecked
       );
 
+      // Important: cumuler localement pour éviter l’écrasement entre clics
+      groupRef.current = nextGroup;
+
       await modifyUserRulesGroup(nextGroup);
     },
-    [checkedByKey, group, modifyUserRulesGroup]
+    [modifyUserRulesGroup]
   );
 
   return (
@@ -110,7 +134,6 @@ export default function ModifyUserRulesGroup({
       <TreeList<PermissionLeafData>
         nodes={nodes}
         renderHeader={(node, { level }) => {
-          // Domain header
           if (level === 0) {
             return (
               <View style={styles.domainHeaderRow}>
@@ -134,7 +157,6 @@ export default function ModifyUserRulesGroup({
             );
           }
 
-          // SubDomain header
           if (level === 1) {
             return (
               <View style={styles.subDomainHeaderRow}>
@@ -150,7 +172,6 @@ export default function ModifyUserRulesGroup({
             );
           }
 
-          // fallback (si un jour tu as plus de niveaux non-feuilles)
           return (
             <View style={{ marginLeft: level * 20 }}>
               <Text style={{ color: backgroundSecond, fontWeight: "700" }}>
@@ -161,11 +182,7 @@ export default function ModifyUserRulesGroup({
         }}
         renderLeaf={(node) => {
           const leaf = node.data!;
-          const key = permKey(
-            leaf.domain.id,
-            leaf.subDomain.id,
-            leaf.permission.id
-          );
+          const key = permKey(leaf.permission.subject, leaf.permission.action);
           const checked = !!checkedByKey[key];
 
           return (
@@ -197,7 +214,7 @@ export default function ModifyUserRulesGroup({
                 style={[styles.permissionText, { color: backgroundSecond }]}
                 numberOfLines={1}
               >
-                {leaf.permission.name}
+                {translateActionToFrench(leaf.permission.action)}
               </Text>
             </Pressable>
           );
@@ -207,67 +224,58 @@ export default function ModifyUserRulesGroup({
   );
 }
 
+function translateActionToFrench(action: string) {
+  const a = action.trim().toLowerCase();
+
+  const map: Record<string, string> = {
+    create: "Créer",
+    read: "Lire",
+    update: "Modifier",
+    delete: "Supprimer",
+    copy: "Copier",
+  };
+
+  return map[a] ?? action;
+}
+
 function hasPermissionInGroup(
   group: UserRulesGroup,
-  domainId: string,
-  subDomainId: string,
-  permissionId: string
+  subject: string,
+  action: string
 ): boolean {
-  const d = group.domains.find((x) => x.id === domainId);
-  const sd = d?.subDomain.find(
-    (x: PermissionSubDomain) => x.id === subDomainId
+  return !!group.permissions?.some(
+    (p) => p.subject === subject && p.action === action
   );
-  return !!sd?.permissions.some((p: Permission) => p.id === permissionId);
 }
 
 function applyPermissionToggleToGroup(
   group: UserRulesGroup,
-  domain: PermissionsDomain,
-  subDomain: PermissionsDomain["subDomain"][number],
-  permission: PermissionsDomain["subDomain"][number]["permissions"][number],
+  permission: Permission,
   checked: boolean
 ): UserRulesGroup {
-  const currentDomains = group.domains ?? [];
+  const current = group.permissions ?? [];
+  const exists = current.some(
+    (p) => p.subject === permission.subject && p.action === permission.action
+  );
 
-  const domainIdx = currentDomains.findIndex((d) => d.id === domain.id);
-  const existingDomain: PermissionsDomain =
-    domainIdx >= 0
-      ? currentDomains[domainIdx]
-      : { id: domain.id, name: domain.name, subDomain: [] };
+  let nextPermissions = current;
 
-  const currentSubDomains = existingDomain.subDomain ?? [];
-  const subIdx = currentSubDomains.findIndex((sd) => sd.id === subDomain.id);
-  const existingSub =
-    subIdx >= 0
-      ? currentSubDomains[subIdx]
-      : { id: subDomain.id, name: subDomain.name, permissions: [] };
-
-  const currentPerms = existingSub.permissions ?? [];
-  const permExists = currentPerms.some((p) => p.id === permission.id);
-
-  let nextPerms = currentPerms;
-  if (checked && !permExists) {
-    nextPerms = [...currentPerms, { id: permission.id, name: permission.name }];
-  } else if (!checked && permExists) {
-    nextPerms = currentPerms.filter((p) => p.id !== permission.id);
+  if (checked && !exists) {
+    nextPermissions = [
+      ...current,
+      { subject: permission.subject, action: permission.action },
+    ];
+  } else if (!checked && exists) {
+    nextPermissions = current.filter(
+      (p) =>
+        !(p.subject === permission.subject && p.action === permission.action)
+    );
   }
 
-  const nextSub = { ...existingSub, permissions: nextPerms };
-  const nextSubDomains =
-    subIdx >= 0
-      ? currentSubDomains.map((sd, i) => (i === subIdx ? nextSub : sd))
-      : [...currentSubDomains, nextSub];
-
-  const nextDomain: PermissionsDomain = {
-    ...existingDomain,
-    subDomain: nextSubDomains,
+  return {
+    ...group,
+    permissions: nextPermissions,
   };
-  const nextDomains =
-    domainIdx >= 0
-      ? currentDomains.map((d, i) => (i === domainIdx ? nextDomain : d))
-      : [...currentDomains, nextDomain];
-
-  return { ...group, domains: nextDomains };
 }
 
 const styles = StyleSheet.create({

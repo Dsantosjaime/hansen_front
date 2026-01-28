@@ -1,15 +1,20 @@
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Select } from "@/components/ui/Select";
 import { SelectOption } from "@/components/ui/select.types";
 import { Spinner } from "@/components/ui/Spinner";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import ModifyUserRulesGroup from "@/components/userRulesGroups/ModifyUserRulesGroup";
 import { useThemeColor } from "@/hooks/use-theme-color";
+import { useGetPermissionsDomainsQuery } from "@/services/permissionGroupApi";
+import {
+  useCreateRoleMutation,
+  useDeleteRoleMutation,
+  useGetRolesQuery,
+  useUpdateRoleMutation,
+} from "@/services/rolesApi";
+import { UserRulesGroup } from "@/types/userRulesGroup";
 import Ionicons from "@expo/vector-icons/build/Ionicons";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { TextInput, StyleSheet, View, Pressable, Text } from "react-native";
-import { useGetUserRulesGroupsQuery } from "@/services/userRulesGroupsApi";
-import ModifyUserRulesGroup from "@/components/userRulesGroups/ModifyUserRulesGroup";
-import { useGetPermissionsDomainsQuery } from "@/services/permissionDomainsApi";
-import { UserRulesGroup } from "@/types/userRulesGroup";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 const INPUT_WIDTH = 500;
 
@@ -48,11 +53,11 @@ export default function UserRulesGroupsScreen() {
 
   // API
   const {
-    data: userRulesGroups = [],
+    data: roles = [],
     isFetching: userRulesGroupsFetching,
     isSuccess: userRulesGroupsSuccess,
     isError: userRulesGroupsError,
-  } = useGetUserRulesGroupsQuery();
+  } = useGetRolesQuery();
 
   const {
     data: permissionsDomains = [],
@@ -61,18 +66,33 @@ export default function UserRulesGroupsScreen() {
     // isError: permissionsDomainsError,
   } = useGetPermissionsDomainsQuery();
 
+  const [createRole] = useCreateRoleMutation();
+  const [deleteRole] = useDeleteRoleMutation();
+  const [updateRole] = useUpdateRoleMutation();
+
   const groupsBusy = userRulesGroupsFetching || permissionsDomainsFetching;
 
   // Mode Select - Modify
-  const [groupId, setGroupId] = useState<string | undefined>(undefined);
-  const [groupDraft, setGroupDraft] = useState<UserRulesGroup | undefined>(
+  const [roleId, setRoleId] = useState<string | undefined>(undefined);
+  const [roleDraft, setRoleDraft] = useState<UserRulesGroup | undefined>(
     undefined
   );
 
   const userRulesGroupsOptions = useMemo<SelectOption<string>[]>(
-    () => userRulesGroups.map((g) => ({ value: g.id, label: g.name })),
-    [userRulesGroups]
+    () =>
+      roles.map((g: { id: any; name: any }) => ({
+        value: g.id,
+        label: g.name,
+      })),
+    [roles]
   );
+
+  const [roleNameDraft, setRoleNameDraft] = useState("");
+
+  useEffect(() => {
+    if (createMode) return;
+    setRoleNameDraft(roleDraft?.name ?? "");
+  }, [createMode, roleDraft?.id, roleDraft?.name]);
 
   // Mode création
   const [newGroupNameDraft, setNewGroupNameDraft] = useState("");
@@ -83,15 +103,16 @@ export default function UserRulesGroupsScreen() {
       if (!trimmed) return null;
 
       try {
-        // TODO: mutation RTKQ: const created = await createUserRulesGroup({ name: trimmed }).unwrap();
-        // return created.id;
-        return "test";
-        // eslint-disable-next-line no-unreachable
+        const created = await createRole({
+          name: trimmed,
+          permissions: [],
+        }).unwrap();
+        return created.id;
       } catch {
         return null;
       }
     },
-    []
+    [createRole]
   );
 
   const handleCreateAndSelectGroupCreated = useCallback(
@@ -101,7 +122,7 @@ export default function UserRulesGroupsScreen() {
       if (!name) return;
       const newId = await addNewUserRulesGroup(name);
       if (!newId) return;
-      setGroupId(newId);
+      setRoleId(newId);
       setCreateMode(false);
       setNewGroupNameDraft("");
     },
@@ -112,9 +133,10 @@ export default function UserRulesGroupsScreen() {
   const [confirm, setConfirm] = useState<ConfirmState>({ open: false });
   const closeConfirm = useCallback(() => setConfirm({ open: false }), []);
 
-  const onDeleteGroupe = useCallback(() => {
-    // TODO: delete group (mutation RTK Query + invalidation tags)
-  }, []);
+  const onDeleteGroupe = useCallback(async () => {
+    await deleteRole(roleId ?? "");
+    setRoleId(roles[0].id);
+  }, [deleteRole, roleId, roles]);
 
   const confirmDeleteGroup = useCallback(() => {
     setConfirm({
@@ -134,22 +156,22 @@ export default function UserRulesGroupsScreen() {
     if (createMode) return;
 
     if (!userRulesGroupsFetching && userRulesGroupsSuccess) {
-      if (userRulesGroups.length === 0) {
-        setGroupId(undefined);
-        setGroupDraft(undefined);
+      if (roles.length === 0) {
+        setRoleId(undefined);
+        setRoleDraft(undefined);
         return;
       }
 
       // si aucun groupId => prend le premier
-      if (!groupId) {
-        setGroupId(userRulesGroups[0].id);
-        setGroupDraft(userRulesGroups[0]);
+      if (!roleId) {
+        setRoleId(roles[0].id);
+        setRoleDraft(roles[0]);
         return;
       }
 
       // si groupId existe => aligne groupDraft si possible
-      const group = userRulesGroups.find((e) => e.id === groupId);
-      if (group) setGroupDraft(group);
+      const group = roles.find((e: { id: string }) => e.id === roleId);
+      if (group) setRoleDraft(group);
       // sinon: on garde le draft actuel (utile juste après création, avant refetch)
     }
 
@@ -158,11 +180,11 @@ export default function UserRulesGroupsScreen() {
     }
   }, [
     createMode,
-    userRulesGroups,
+    roles,
     userRulesGroupsFetching,
     userRulesGroupsSuccess,
     userRulesGroupsError,
-    groupId,
+    roleId,
   ]);
 
   return (
@@ -201,15 +223,15 @@ export default function UserRulesGroupsScreen() {
           ) : (
             <Select<string>
               label="Role"
-              value={groupId ?? null}
+              value={roleId ?? null}
               options={userRulesGroupsOptions}
               onChange={(id) => {
                 setCreateMode(false);
-                setGroupId(id);
+                setRoleId(id);
 
                 // update immédiat du header sans attendre un refetch
-                const g = userRulesGroups.find((x) => x.id === id);
-                if (g) setGroupDraft(g);
+                const g = roles.find((x: { id: string }) => x.id === id);
+                if (g) setRoleDraft(g);
               }}
               searchable
               searchPlaceholder="Rechercher un role ..."
@@ -255,14 +277,35 @@ export default function UserRulesGroupsScreen() {
             ]}
           >
             <TextInput
-              value={createMode ? newGroupNameDraft : groupDraft?.name ?? ""}
+              value={createMode ? newGroupNameDraft : roleNameDraft}
               onChangeText={(t) => {
                 if (createMode) setNewGroupNameDraft(t);
-                // (Hors createMode: tu brancheras plus tard l’update du groupe)
+                else setRoleNameDraft(t);
               }}
-              onBlur={() => {
-                if (createMode)
-                  handleCreateAndSelectGroupCreated(newGroupNameDraft);
+              onBlur={async () => {
+                if (createMode) {
+                  await handleCreateAndSelectGroupCreated(newGroupNameDraft);
+                  return;
+                }
+
+                // Edit mode => update role name
+                if (!roleDraft?.id) return;
+
+                const trimmed = roleNameDraft.trim();
+                const current = (roleDraft.name ?? "").trim();
+
+                // ne fait rien si vide ou inchangé
+                if (!trimmed || trimmed === current) return;
+
+                try {
+                  await updateRole({
+                    id: roleDraft.id,
+                    data: { name: trimmed },
+                  }).unwrap();
+                } catch (e) {
+                  // Optionnel: rollback UI si erreur
+                  setRoleNameDraft(roleDraft.name ?? "");
+                }
               }}
               style={[
                 styles.textInput,
@@ -293,12 +336,18 @@ export default function UserRulesGroupsScreen() {
             </View>
           </View>
         )}
-        {!createMode && groupDraft && (
+        {!createMode && roleDraft && (
           <ModifyUserRulesGroup
-            group={groupDraft}
+            group={roleDraft}
             permissionsDomains={permissionsDomains}
-            modifyUserRulesGroup={(modifiedUserRulesGroup) => {
-              console.log(modifiedUserRulesGroup);
+            modifyUserRulesGroup={async (modifiedUserRulesGroup) => {
+              await updateRole({
+                id: modifiedUserRulesGroup.id,
+                data: {
+                  name: modifiedUserRulesGroup.name,
+                  permissions: modifiedUserRulesGroup.permissions,
+                },
+              });
             }}
           />
         )}

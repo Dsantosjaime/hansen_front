@@ -47,7 +47,6 @@ export const AppHeader = memo(function AppHeader(
           <Pressable
             onPress={() => {
               if (canGoBack) props.navigation.goBack();
-              // sinon tu peux décider de naviguer vers Home si tu veux
             }}
             hitSlop={10}
             accessibilityRole="button"

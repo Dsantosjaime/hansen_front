@@ -1,5 +1,7 @@
+import { Permission } from "./permissionGroup";
+
 export type UserRulesGroup = {
   id: string;
   name: string;
-  domains: PermissionsDomain[];
+  permissions: Permission[];
 };

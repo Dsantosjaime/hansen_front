@@ -1,11 +1,11 @@
-import React, { useCallback, useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, Text } from "react-native";
 import Ionicons from "@expo/vector-icons/build/Ionicons";
+import React, { useCallback, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { useThemeColor } from "@/hooks/use-theme-color";
-import { useGetGroupsQuery } from "@/services/contactsApi";
 import { Select } from "@/components/ui/Select";
 import type { SelectOption } from "@/components/ui/select.types";
+import { useThemeColor } from "@/hooks/use-theme-color";
+import { useGetGroupsQuery } from "@/services/contactsApi";
 
 import {
   SelectGroupsSubGroups,

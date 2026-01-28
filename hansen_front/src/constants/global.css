@@ -21,3 +21,25 @@ select,
 textarea {
   font: inherit;
 }
+
+/* Firefox */
+* {
+  scrollbar-width: none;
+}
+
+/* IE/Edge Legacy */
+* {
+  -ms-overflow-style: none;
+}
+
+/* Chrome / Safari / Chromium */
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
