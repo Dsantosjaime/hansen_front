@@ -1,19 +1,30 @@
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Select } from "@/components/ui/Select";
 import { SelectOption } from "@/components/ui/select.types";
 import { Spinner } from "@/components/ui/Spinner";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useThemeColor } from "@/hooks/use-theme-color";
-import { useGetGroupsQuery } from "@/services/contactsApi";
 import Ionicons from "@expo/vector-icons/build/Ionicons";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  TextInput,
-  StyleSheet,
-  View,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
+  TextInput,
+  View,
 } from "react-native";
+
+import {
+  useCreateGroupMutation,
+  useDeleteGroupMutation,
+  useGetGroupsQuery,
+  useUpdateGroupMutation,
+} from "src/services/groupsApi";
+import {
+  useCreateSubGroupMutation,
+  useDeleteSubGroupMutation,
+  useUpdateSubGroupMutation,
+} from "src/services/subgroupsApi";
 
 const INPUT_WIDTH = 500;
 
@@ -36,7 +47,6 @@ export default function GroupScreen() {
   const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
   const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
 
-  // ✅ ids numériques (comme contactsApi)
   const [groupId, setGroupId] = useState<string | null>(null);
   const [createMode, setCreateMode] = useState(false);
   const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
@@ -54,7 +64,16 @@ export default function GroupScreen() {
     data: groups = [],
     isLoading: groupsLoading,
     isFetching: groupsFetching,
+    refetch: refetchGroups,
   } = useGetGroupsQuery();
+
+  const [createGroup] = useCreateGroupMutation();
+  const [updateGroup] = useUpdateGroupMutation();
+  const [deleteGroup] = useDeleteGroupMutation();
+
+  const [createSubGroup] = useCreateSubGroupMutation();
+  const [updateSubGroup] = useUpdateSubGroupMutation();
+  const [deleteSubGroup] = useDeleteSubGroupMutation();
 
   const groupsBusy = groupsLoading || groupsFetching;
 
@@ -64,9 +83,8 @@ export default function GroupScreen() {
     [groups, groupId]
   );
 
-  // ✅ sous-groupes directement depuis le groupe sélectionné
   const subGroups = useMemo(
-    () => selectedGroup?.subGroup ?? [],
+    () => selectedGroup?.subGroups ?? [],
     [selectedGroup]
   );
 
@@ -116,7 +134,7 @@ export default function GroupScreen() {
     setSubGroupDraftNames({});
   }, [groupId]);
 
-  // ✅ initialise/complète les drafts depuis subGroups (qui vient de selectedGroup)
+  // ✅ initialise/complète les drafts depuis subGroups
   useEffect(() => {
     setSubGroupDraftNames((prev) => {
       const next = { ...prev };
@@ -128,19 +146,38 @@ export default function GroupScreen() {
   }, [subGroups]);
 
   // ---- Delete confirmations (group / subgroup) ----
-  const onDeleteGroup = useCallback(() => {
-    // TODO: delete group (mutation RTK Query + invalidation tags)
-  }, []);
+  const onDeleteGroup = useCallback(async () => {
+    if (!groupId) return;
 
-  const onDeleteSubGroup = useCallback(async (_subGroupId: string) => {
-    // TODO: delete sub-group (mutation + invalidation tags)
-  }, []);
+    try {
+      await deleteGroup(groupId).unwrap();
+      setGroupId(null);
+      setCreatedGroupId(null);
+      await refetchGroups();
+    } catch {
+      // Optionnel: toast erreur
+    }
+  }, [deleteGroup, groupId, refetchGroups]);
+
+  const onDeleteSubGroup = useCallback(
+    async (subGroupId: string) => {
+      try {
+        await deleteSubGroup(subGroupId).unwrap();
+
+        // Comme l'écran lit subGroups depuis GET /groups, on refetch.
+        await refetchGroups();
+      } catch {
+        // Optionnel: toast erreur
+      }
+    },
+    [deleteSubGroup, refetchGroups]
+  );
 
   const confirmDeleteGroup = useCallback(() => {
     setConfirm({
       open: true,
       title: "Confirmer la suppression",
-      message: "Tous les contacts liés seront supprimées",
+      message: "Tous les sous-groupes liés seront supprimés",
       confirmText: "Valider",
       cancelText: "Annuler",
       onConfirm: async () => {
@@ -155,7 +192,7 @@ export default function GroupScreen() {
       setConfirm({
         open: true,
         title: "Confirmer la suppression",
-        message: "Tous les contacts liés seront supprimées",
+        message: "Ce sous-groupe sera définitivement supprimé",
         confirmText: "Valider",
         cancelText: "Annuler",
         onConfirm: async () => {
@@ -168,12 +205,26 @@ export default function GroupScreen() {
   );
 
   const onUpdateSubGroupName = useCallback(
-    async (_subGroupId: string, nextName: string) => {
+    async (subGroupId: string, nextName: string) => {
       const name = nextName.trim();
       if (!name) return;
-      // TODO: update sub-group (mutation + invalidation tags)
+
+      // évite appels inutiles si inchangé
+      const current = subGroups.find((s) => s.id === subGroupId)?.name ?? "";
+      if (current.trim() === name) return;
+
+      try {
+        await updateSubGroup({ id: subGroupId, data: { name } }).unwrap();
+        await refetchGroups();
+      } catch {
+        // rollback draft si erreur
+        setSubGroupDraftNames((prev) => ({
+          ...prev,
+          [subGroupId]: current,
+        }));
+      }
     },
-    []
+    [refetchGroups, subGroups, updateSubGroup]
   );
 
   // ---- Add subgroup ----
@@ -190,10 +241,15 @@ export default function GroupScreen() {
       const trimmed = name.trim();
       if (!trimmed) return;
 
-      // TODO: create sub-group (mutation + invalidation tags)
-      setNewSubGroupName("");
+      try {
+        await createSubGroup({ name: trimmed, groupId }).unwrap();
+        setNewSubGroupName("");
+        await refetchGroups();
+      } catch {
+        // Optionnel: toast erreur
+      }
     },
-    [groupId]
+    [createSubGroup, groupId, refetchGroups]
   );
 
   // ---- Create group ----
@@ -203,14 +259,14 @@ export default function GroupScreen() {
       if (!trimmed) return null;
 
       try {
-        // TODO: create group (mutation RTK Query) -> return created.id
-        return "2"; // POC
-        // eslint-disable-next-line no-unreachable
+        const created = await createGroup({ name: trimmed }).unwrap();
+        await refetchGroups();
+        return created.id;
       } catch {
         return null;
       }
     },
-    []
+    [createGroup, refetchGroups]
   );
 
   const onClickCreateNewGroup = useCallback(() => {
@@ -222,7 +278,7 @@ export default function GroupScreen() {
     setGroupDraftName("");
     setNewSubGroupName("");
     setSubGroupDraftNames({});
-    setGroupId(null); // pas de groupe sélectionné pendant la création
+    setGroupId(null);
   }, []);
 
   const handleCreateAndSelectGroupCreated = useCallback(
@@ -239,6 +295,34 @@ export default function GroupScreen() {
     },
     [addNewGroup, createMode]
   );
+
+  const onUpdateGroupName = useCallback(async () => {
+    if (createMode) return;
+    if (!groupId) return;
+
+    const trimmed = groupDraftName.trim();
+    const current = (selectedGroup?.name ?? "").trim();
+
+    if (!trimmed || trimmed === current) {
+      // rollback visuel si vide
+      if (!trimmed) setGroupDraftName(selectedGroup?.name ?? "");
+      return;
+    }
+
+    try {
+      await updateGroup({ id: groupId, data: { name: trimmed } }).unwrap();
+      await refetchGroups();
+    } catch {
+      setGroupDraftName(selectedGroup?.name ?? "");
+    }
+  }, [
+    createMode,
+    groupDraftName,
+    groupId,
+    refetchGroups,
+    selectedGroup?.name,
+    updateGroup,
+  ]);
 
   return (
     <View style={[styles.screen, { backgroundColor: backgroundLight }]}>
@@ -333,11 +417,14 @@ export default function GroupScreen() {
               value={createMode ? newGroupNameDraft : groupDraftName}
               onChangeText={(t) => {
                 if (createMode) setNewGroupNameDraft(t);
-                else setGroupDraftName(t); // TODO: update group name (mutation)
+                else setGroupDraftName(t);
               }}
               onBlur={() => {
-                if (createMode)
+                if (createMode) {
                   handleCreateAndSelectGroupCreated(newGroupNameDraft);
+                } else {
+                  onUpdateGroupName();
+                }
               }}
               style={[
                 styles.textInput,

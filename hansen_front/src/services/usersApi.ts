@@ -22,10 +22,6 @@ export const usersApi = createApi({
   tagTypes: ["Users"],
   baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
-    /**
-     * NOTE: nécessite un endpoint GET /users côté backend.
-     * Si tu ne l’as pas encore, soit tu le rajoutes, soit tu supprimes cette query.
-     */
     getUsers: builder.query<User[], void>({
       query: () => ({
         url: "/users",

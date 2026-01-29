@@ -1,17 +1,17 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ContactInfos } from "@/components/grid/ContactInfos";
+import { Grid, GridColumnDef } from "@/components/grid/Grid";
+import { Select } from "@/components/ui/Select";
+import type { SelectOption } from "@/components/ui/select.types";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import {
   Contact,
   Status,
   useGetContactsByGroupQuery,
-  useGetGroupsQuery,
 } from "@/services/contactsApi";
-import { Select } from "@/components/ui/Select";
-import type { SelectOption } from "@/components/ui/select.types";
-import { Grid, GridColumnDef } from "@/components/grid/Grid";
-import { ContactInfos } from "@/components/grid/ContactInfos";
+import { useGetGroupsQuery } from "@/services/groupsApi";
 import { Ionicons } from "@expo/vector-icons";
+import React, { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 type PanelState =
   | { type: "create" }
@@ -50,7 +50,7 @@ export default function ContactsScreen() {
   // ✅ Les sous-groupes sont maintenant inclus dans le groupe sélectionné
   const subGroups = useMemo(() => {
     if (!groupId) return [];
-    return groups.find((g) => g.id === groupId)?.subGroup ?? [];
+    return groups.find((g) => g.id === groupId)?.subGroups ?? [];
   }, [groups, groupId]);
 
   const subGroupOptions = useMemo<SelectOption<string>[]>(
