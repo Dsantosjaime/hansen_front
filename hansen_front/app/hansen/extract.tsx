@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Select } from "@/components/ui/Select";
 import type { SelectOption } from "@/components/ui/select.types";
 import { useThemeColor } from "@/hooks/use-theme-color";
-import { useGetGroupsQuery } from "@/services/contactsApi";
+import { useGetGroupsQuery } from "@/services/groupsApi";
 
 import {
   SelectGroupsSubGroups,
@@ -39,7 +39,6 @@ export default function ExtractScreen() {
   const hasSelection = useMemo(() => selected.length > 0, [selected]);
 
   const extractData = useCallback((payload: GroupsAndSubGroupSelected) => {
-    console.log("extractData:", payload);
     setSelected([]);
   }, []);
 

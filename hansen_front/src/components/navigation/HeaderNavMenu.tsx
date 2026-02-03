@@ -41,11 +41,8 @@ export const HeaderNavMenu = memo(function HeaderNavMenu() {
       {
         key: "email",
         label: "Email",
-        type: "dropdown",
-        items: [
-          { label: "Templates d'emails", href: "/hansen/email/templates" },
-          { label: "Emails", href: "/hansen/email" },
-        ],
+        type: "link",
+        href: "/hansen/email",
       },
       {
         key: "plugin",

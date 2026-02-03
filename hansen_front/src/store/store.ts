@@ -1,4 +1,5 @@
 // src/store/store.ts
+import { brevoMarketingApi } from "@/services/brevoMarketingApi";
 import { contactsApi } from "@/services/contactsApi";
 import { emailsApi } from "@/services/emailsApi";
 import { groupsApi } from "@/services/groupsApi";
@@ -21,6 +22,7 @@ export const store = configureStore({
     [usersApi.reducerPath]: usersApi.reducer,
     [pluginParamsApi.reducerPath]: pluginParamsApi.reducer,
     [emailsApi.reducerPath]: emailsApi.reducer,
+    [brevoMarketingApi.reducerPath]: brevoMarketingApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
@@ -31,7 +33,8 @@ export const store = configureStore({
       rolesApi.middleware,
       usersApi.middleware,
       pluginParamsApi.middleware,
-      emailsApi.middleware
+      emailsApi.middleware,
+      brevoMarketingApi.middleware
     ),
 });
 

@@ -1,23 +1,30 @@
-import React, { useCallback, useMemo, useState } from "react";
-import { StyleSheet, View, Text, Pressable } from "react-native";
 import Ionicons from "@expo/vector-icons/build/Ionicons";
+import React, { useCallback, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { useThemeColor } from "@/hooks/use-theme-color";
-import { Spinner } from "@/components/ui/Spinner";
 import { Select } from "@/components/ui/Select";
 import type { SelectOption } from "@/components/ui/select.types";
+import { Spinner } from "@/components/ui/Spinner";
+import { useThemeColor } from "@/hooks/use-theme-color";
 
-import { useGetGroupsQuery } from "@/services/contactsApi";
 import {
   SelectGroupsSubGroups,
   type GroupsAndSubGroupSelected,
 } from "@/components/extract/SelectGroupsSubGroups";
+import {
+  useGetBrevoMarketingTemplatesQuery,
+  useSendBrevoMarketingCampaignMutation,
+} from "@/services/brevoMarketingApi";
+import { useGetGroupsQuery } from "@/services/groupsApi";
 
 type Props = {
   onClose: () => void;
-  handleSend: (payload: {
-    templateId: string;
+
+  // Optionnel: si tu veux que le parent soit notifié après un envoi
+  handleSend?: (payload: {
+    templateId: number;
     groups: GroupsAndSubGroupSelected;
+    campaignId: number;
   }) => void | Promise<void>;
 };
 
@@ -32,15 +39,28 @@ export function NewEmail({ onClose, handleSend }: Props) {
   // Groups
   const { data: groups = [], isFetching } = useGetGroupsQuery();
 
-  // Template select (placeholder pour l’instant)
-  const templateOptions = useMemo<SelectOption<string>[]>(
-    () => [
-      { value: "tpl-1", label: "Template 1" },
-      { value: "tpl-2", label: "Template 2" },
-    ],
-    []
+  // Brevo templates
+  const {
+    data: templates = [],
+    isFetching: templatesFetching,
+    isLoading: templatesLoading,
+  } = useGetBrevoMarketingTemplatesQuery();
+
+  const [sendCampaign, { isLoading: sending }] =
+    useSendBrevoMarketingCampaignMutation();
+
+  const templatesBusy = templatesFetching || templatesLoading;
+
+  const templateOptions = useMemo<SelectOption<number>[]>(
+    () =>
+      templates.map((t) => ({
+        value: t.id,
+        label: `${t.subject} (${t.name})`,
+      })),
+    [templates]
   );
-  const [templateId, setTemplateId] = useState<string | null>(null);
+
+  const [templateId, setTemplateId] = useState<number | null>(null);
 
   // Group selection
   const ALL = "__ALL__";
@@ -57,19 +77,50 @@ export function NewEmail({ onClose, handleSend }: Props) {
   const [selected, setSelected] = useState<GroupsAndSubGroupSelected>([]);
 
   const canSend = useMemo(
-    () => !!templateId && selected.length > 0,
-    [templateId, selected]
+    () => !!templateId && selected.length > 0 && !sending,
+    [templateId, selected.length, sending]
   );
+
+  const toIdsPayload = useCallback((sel: GroupsAndSubGroupSelected) => {
+    const groupIds: string[] = [];
+    const subGroupIds: string[] = [];
+
+    // Mapping tolérant tant que GroupsAndSubGroupSelected n'est pas strictement connu ici
+    for (const g of sel as any[]) {
+      const gid = String(g?.id ?? "");
+      if (gid) groupIds.push(gid);
+
+      const sgs = (g?.subGroups ?? []) as any[];
+      for (const sg of sgs) {
+        const sid = String(sg?.id ?? sg?.value ?? "");
+        if (sid) subGroupIds.push(sid);
+      }
+    }
+
+    return { groupIds, subGroupIds };
+  }, []);
 
   const onSend = useCallback(async () => {
     if (!templateId) return;
     if (selected.length === 0) return;
 
-    await handleSend({ templateId, groups: selected });
+    const { subGroupIds } = toIdsPayload(selected);
+
+    const result = await sendCampaign({
+      templateId,
+      subGroupIds: subGroupIds.length ? subGroupIds : undefined,
+    }).unwrap();
+
+    await handleSend?.({
+      templateId,
+      groups: selected,
+      campaignId: result.campaignId,
+    });
+
     // reset après envoi (optionnel)
     setSelected([]);
     setTemplateId(null);
-  }, [handleSend, selected, templateId]);
+  }, [handleSend, selected, sendCampaign, templateId, toIdsPayload]);
 
   return (
     <View
@@ -78,23 +129,26 @@ export function NewEmail({ onClose, handleSend }: Props) {
         { backgroundColor: background, borderColor: border },
       ]}
     >
-      {/* Header (même design que EmailInfos) */}
+      {/* Header */}
       <View style={[styles.topRow, { backgroundColor: backgroundSecond }]}>
-        {/* Gauche: Select Template (unique champ demandé) */}
         <View style={styles.headerLeft}>
           <View style={styles.templateSelectWrap}>
-            <Select<string>
+            <Select<number>
               label="Template"
               value={templateId}
               options={templateOptions}
               onChange={setTemplateId}
               searchable
-              searchPlaceholder="Choisir un template..."
+              searchPlaceholder={
+                templatesBusy
+                  ? "Chargement des templates..."
+                  : "Choisir un template..."
+              }
+              disabled={templatesBusy || templateOptions.length === 0}
             />
           </View>
         </View>
 
-        {/* Droite: envoyer + close */}
         <View style={styles.headerRight}>
           <Pressable
             onPress={onSend}
@@ -102,7 +156,7 @@ export function NewEmail({ onClose, handleSend }: Props) {
             hitSlop={10}
             style={({ pressed }) => [
               styles.iconBtn,
-              { opacity: !canSend ? 0.45 : pressed ? 0.7 : 1 },
+              { opacity: !canSend ? 0.35 : pressed ? 0.7 : 1 },
             ]}
             accessibilityRole="button"
             accessibilityLabel="Envoyer"
@@ -125,9 +179,8 @@ export function NewEmail({ onClose, handleSend }: Props) {
         </View>
       </View>
 
-      {/* Content (TreeList avec checkbox via SelectGroupsSubGroups) */}
+      {/* Content */}
       <View style={styles.content}>
-        {/* Petit filtre optionnel au-dessus de l’arbre (ne prend pas la place du header) */}
         <View style={styles.filterRow}>
           <View style={{ flex: 1 }}>
             <Select<string>
@@ -147,7 +200,7 @@ export function NewEmail({ onClose, handleSend }: Props) {
             </Text>
             <Text style={[styles.counterText, { color: textDark }]}>
               {`Sous-Groupe(s): ${selected.reduce(
-                (sum, e) => sum + (e.subGroups?.length ?? 0),
+                (sum: number, e: any) => sum + (e.subGroups?.length ?? 0),
                 0
               )}`}
             </Text>
@@ -185,7 +238,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
-  // Header
   topRow: {
     height: 64,
     paddingHorizontal: 16,
@@ -215,7 +267,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Content
   content: {
     flex: 1,
     minHeight: 0,

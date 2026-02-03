@@ -1,10 +1,10 @@
-import React, { useCallback, useMemo } from "react";
-import { StyleSheet, View, Pressable, Text } from "react-native";
 import Ionicons from "@expo/vector-icons/build/Ionicons";
+import React, { useCallback, useMemo } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { TreeList, type TreeNode } from "@/components/ui/TreeList";
 import { useThemeColor } from "@/hooks/use-theme-color";
-import type { Group, SubGroup } from "@/services/contactsApi";
+import type { Group, SubGroup } from "@/services/groupsApi";
 
 export type GroupsAndSubGroupSelected = {
   id: string;
@@ -63,7 +63,7 @@ export function SelectGroupsSubGroups({
 
   const getGroupCheckState = useCallback(
     (group: Group) => {
-      const subs = group.subGroup ?? [];
+      const subs = group.subGroups ?? [];
       if (subs.length === 0) return { all: false, some: false };
 
       let count = 0;
@@ -130,7 +130,7 @@ export function SelectGroupsSubGroups({
       }
 
       // cocher tous les sous-groupes
-      const allSubGroups = (group.subGroup ?? []).map((sg) => ({
+      const allSubGroups = (group.subGroups ?? []).map((sg) => ({
         id: sg.id,
         name: sg.name,
       }));
@@ -152,7 +152,7 @@ export function SelectGroupsSubGroups({
     return displayedGroups.map((g) => ({
       id: `group:${g.id}`,
       label: g.name,
-      children: (g.subGroup ?? []).map((sg) => ({
+      children: (g.subGroups ?? []).map((sg) => ({
         id: leafKey(g.id, sg.id), // unique même si sg.id dupliqué dans d'autres groupes
         label: sg.name,
         data: { group: g, subGroup: sg },

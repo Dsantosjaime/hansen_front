@@ -7,6 +7,7 @@ import {
   Contact,
   Status,
   useGetContactsByGroupQuery,
+  useUpdateContactMutation,
 } from "@/services/contactsApi";
 import { useGetGroupsQuery } from "@/services/groupsApi";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,11 +24,10 @@ export default function ContactsScreen() {
   const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
 
   const { data: groups = [], isLoading: groupsLoading } = useGetGroupsQuery();
+  const [updateContact] = useUpdateContactMutation();
 
   const [groupId, setGroupId] = useState<string | null>(null);
   const [subGroupId, setSubGroupId] = useState<string | null>(null);
-
-  console.log(subGroupId);
 
   const [panel, setPanel] = useState<PanelState>(null);
 
@@ -47,7 +47,6 @@ export default function ContactsScreen() {
     [groups]
   );
 
-  // ✅ Les sous-groupes sont maintenant inclus dans le groupe sélectionné
   const subGroups = useMemo(() => {
     if (!groupId) return [];
     return groups.find((g) => g.id === groupId)?.subGroups ?? [];
@@ -213,8 +212,9 @@ export default function ContactsScreen() {
               data={filteredContacts}
               columns={columns}
               pageSize={10}
-              onCellUpdate={({ rowIndex, columnId, value }) => {
-                console.log("cell update", { rowIndex, columnId, value });
+              onCellUpdate={async ({ row }) => {
+                const { id, ...data } = row;
+                await updateContact({ id, data }).unwrap();
               }}
             />
           </View>

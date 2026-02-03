@@ -1,16 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { ContactList, ContactListHandle } from "@/components/grid/ContactList";
+import { useThemeColor } from "@/hooks/use-theme-color";
 import {
   Contact,
   Status,
+  useCreateContactMutation,
   useGetContactEmailsQuery,
+  useUpdateContactMutation,
 } from "@/services/contactsApi";
-import { useThemeColor } from "@/hooks/use-theme-color";
+import { Ionicons } from "@expo/vector-icons";
+import { skipToken } from "@reduxjs/toolkit/query";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Select } from "../ui/Select";
 import { SelectOption } from "../ui/select.types";
-import { ContactList, ContactListHandle } from "@/components/grid/ContactList";
-import { skipToken } from "@reduxjs/toolkit/query";
 
 type Mode = "create" | "edit";
 
@@ -21,7 +29,7 @@ type ContactDraft = {
   email: string;
   function: string;
   status: Status;
-  phoneNumber: [string, string];
+  phoneNumber: string[];
   groupId: string;
   subGroupId: string;
   lastContact: string;
@@ -34,17 +42,18 @@ type Props = {
   groupIdSelected?: string | null;
   subGroupIdSelected?: string | null;
   onClose: () => void;
+  onSaved?: (contact: Contact) => void;
 };
 
 function makeDraftFromContact(c: Contact): ContactDraft {
   return {
-    id: (c as any).id,
+    id: c.id,
     firstName: c.firstName ?? "",
     lastName: c.lastName ?? "",
     email: c.email ?? "",
     function: c.function ?? "",
     status: c.status ?? Status.ACTIF,
-    phoneNumber: c.phoneNumber ?? ["", ""],
+    phoneNumber: c.phoneNumber ?? [],
     groupId: c.groupId,
     subGroupId: c.subGroupId,
     lastContact: c.lastContact ?? "",
@@ -76,6 +85,7 @@ export function ContactInfos({
   groupIdSelected,
   subGroupIdSelected,
   onClose,
+  onSaved,
 }: Props) {
   const background = useThemeColor({}, "backgroundDark");
   const text = useThemeColor({ light: "#0F172A", dark: "#F9FAFB" }, "text");
@@ -84,28 +94,44 @@ export function ContactInfos({
 
   const listRef = useRef<ContactListHandle>(null);
 
-  const initialDraft = useMemo<ContactDraft>(() => {
+  const [createContact, { isLoading: isCreating }] = useCreateContactMutation();
+  const [updateContact, { isLoading: isUpdating }] = useUpdateContactMutation();
+  const saving = isCreating || isUpdating;
+
+  // Mode/Contact "effectifs" internes (create -> edit après save)
+  const [effectiveMode, setEffectiveMode] = useState<Mode>(mode);
+  const [effectiveContact, setEffectiveContact] = useState<Contact | null>(
+    initialContact ?? null
+  );
+
+  // Draft affiché
+  const [draft, setDraft] = useState<ContactDraft>(() => {
     if (mode === "edit" && initialContact)
       return makeDraftFromContact(initialContact);
     return makeEmptyDraft(groupIdSelected, subGroupIdSelected);
-  }, [mode, initialContact, groupIdSelected, subGroupIdSelected]);
+  });
 
-  const shouldFetch = mode === "edit" && !!initialContact?.id;
+  // resync si le parent change de mode/contact
+  useEffect(() => {
+    setEffectiveMode(mode);
+    setEffectiveContact(initialContact ?? null);
+
+    if (mode === "edit" && initialContact) {
+      setDraft(makeDraftFromContact(initialContact));
+    } else {
+      setDraft(makeEmptyDraft(groupIdSelected, subGroupIdSelected));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, initialContact?.id, groupIdSelected, subGroupIdSelected]);
+
+  const shouldFetch = effectiveMode === "edit" && !!effectiveContact?.id;
 
   const queryArg = useMemo(() => {
-    return shouldFetch ? { contactId: initialContact?.id! } : skipToken;
-  }, [shouldFetch, initialContact?.id]);
+    return shouldFetch ? { contactId: effectiveContact!.id } : skipToken;
+  }, [shouldFetch, effectiveContact]);
 
   const { data: emails = [], isLoading: listEmailIsLoading } =
     useGetContactEmailsQuery(queryArg);
-
-  const initialRef = useRef<ContactDraft>(initialDraft);
-  const [draft, setDraft] = useState<ContactDraft>(initialDraft);
-
-  useEffect(() => {
-    initialRef.current = initialDraft;
-    setDraft(initialDraft);
-  }, [initialDraft]);
 
   const statusOptions: SelectOption<Status>[] = useMemo(
     () => [
@@ -114,6 +140,106 @@ export function ContactInfos({
     ],
     []
   );
+
+  const toDto = useCallback(() => {
+    const phoneNumber = (draft.phoneNumber ?? [])
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    return {
+      firstName: draft.firstName.trim(),
+      lastName: draft.lastName.trim(),
+      function: draft.function.trim(),
+      status: draft.status,
+      email: draft.email.trim(),
+      phoneNumber,
+      lastContact: draft.lastContact.trim(),
+      lastEmail: draft.lastEmail.trim(),
+      groupId: draft.groupId,
+      subGroupId: draft.subGroupId,
+    };
+  }, [draft]);
+
+  // ✅ Create: bouton save activé seulement si prénom/nom/email remplis
+  const canSaveCreate = useMemo(() => {
+    if (effectiveMode !== "create") return false;
+    return (
+      !!draft.firstName.trim() &&
+      !!draft.lastName.trim() &&
+      !!draft.email.trim()
+    );
+  }, [draft.email, draft.firstName, draft.lastName, effectiveMode]);
+
+  // Anti-spam: mémorise la dernière payload sauvegardée en EDIT
+  const lastSavedKeyRef = useRef<string>("");
+
+  // ✅ Auto-save en EDIT (debounced)
+  useEffect(() => {
+    if (effectiveMode !== "edit") return;
+    const id = effectiveContact?.id;
+    if (!id) return;
+
+    const payload = toDto();
+    const key = JSON.stringify(payload);
+
+    if (key === lastSavedKeyRef.current) return;
+
+    const t = setTimeout(async () => {
+      try {
+        const updated = await updateContact({ id, data: payload }).unwrap();
+        setEffectiveContact(updated);
+        lastSavedKeyRef.current = key;
+        onSaved?.(updated);
+      } catch {
+        // Optionnel: toast/rollback
+      }
+    }, 700);
+
+    return () => clearTimeout(t);
+  }, [
+    draft,
+    effectiveContact?.id,
+    effectiveMode,
+    onSaved,
+    toDto,
+    updateContact,
+  ]);
+
+  // Save manuel uniquement en CREATE
+  const onSave = useCallback(async () => {
+    if (effectiveMode !== "create") return;
+
+    if (!canSaveCreate) return;
+    if (!draft.groupId || draft.groupId === "-1") return;
+    if (!draft.subGroupId || draft.subGroupId === "-1") return;
+
+    try {
+      const payload = toDto();
+      const created = await createContact(payload).unwrap();
+
+      // passe en edit
+      setEffectiveMode("edit");
+      setEffectiveContact(created);
+      setDraft(makeDraftFromContact(created));
+
+      // évite un auto-save immédiat juste après create
+      lastSavedKeyRef.current = JSON.stringify(payload);
+
+      onSaved?.(created);
+    } catch {
+      // Optionnel: toast
+    }
+  }, [
+    canSaveCreate,
+    createContact,
+    draft.groupId,
+    draft.subGroupId,
+    effectiveMode,
+    onSaved,
+    toDto,
+  ]);
+
+  const saveDisabled = effectiveMode === "create" && (saving || !canSaveCreate);
 
   return (
     <View
@@ -141,6 +267,37 @@ export function ContactInfos({
         </View>
 
         <View style={styles.topRight}>
+          {/* ✅ Bouton Save uniquement en CREATE (désactivé + grisé si champs requis manquants) */}
+          {effectiveMode === "create" ? (
+            <Pressable
+              onPress={onSave}
+              disabled={saveDisabled}
+              hitSlop={10}
+              style={({ pressed }) => {
+                const disabled = saveDisabled;
+
+                return [
+                  styles.iconBtn,
+                  {
+                    // rendu "grisé"
+                    backgroundColor: disabled
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(255,255,255,0.16)",
+                    opacity: disabled ? 0.55 : pressed ? 0.85 : 1,
+                  },
+                ];
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Sauvegarder"
+            >
+              <Ionicons
+                name="save-outline"
+                size={26}
+                color={saveDisabled ? "#94A3B8" : "#FFFFFF"}
+              />
+            </Pressable>
+          ) : null}
+
           <Pressable
             onPress={onClose}
             hitSlop={10}
@@ -156,7 +313,6 @@ export function ContactInfos({
         </View>
       </View>
 
-      {/* Bloc inputs haut */}
       <View style={styles.content}>
         <View style={styles.inputsCol}>
           <Text style={[styles.label, { color: muted }]}>Poste</Text>
@@ -168,6 +324,7 @@ export function ContactInfos({
             placeholderTextColor={muted}
             autoCapitalize="none"
           />
+
           <Text style={[styles.label, { color: muted }]}>Email</Text>
           <TextInput
             value={draft.email}
@@ -182,9 +339,12 @@ export function ContactInfos({
         <View style={styles.inputsCol}>
           <Text style={[styles.label, { color: muted }]}>Téléphone 1</Text>
           <TextInput
-            value={draft.phoneNumber[0]}
+            value={draft.phoneNumber[0] ?? ""}
             onChangeText={(v) =>
-              setDraft((d) => ({ ...d, phoneNumber: [v, d.phoneNumber[1]] }))
+              setDraft((d) => ({
+                ...d,
+                phoneNumber: [v, d.phoneNumber[1] ?? ""],
+              }))
             }
             style={[styles.input, { borderColor: border, color: text }]}
             placeholder="+33 6 00 00 00 00"
@@ -193,9 +353,12 @@ export function ContactInfos({
 
           <Text style={[styles.label, { color: muted }]}>Téléphone 2</Text>
           <TextInput
-            value={draft.phoneNumber[1]}
+            value={draft.phoneNumber[1] ?? ""}
             onChangeText={(v) =>
-              setDraft((d) => ({ ...d, phoneNumber: [d.phoneNumber[0], v] }))
+              setDraft((d) => ({
+                ...d,
+                phoneNumber: [d.phoneNumber[0] ?? "", v],
+              }))
             }
             style={[styles.input, { borderColor: border, color: text }]}
             placeholder="+33 1 00 00 00 00"
@@ -227,6 +390,7 @@ export function ContactInfos({
             data={emails}
           />
         </View>
+
         <View style={styles.inputsCol}>
           <ContactList
             title={"Services"}
@@ -240,6 +404,7 @@ export function ContactInfos({
             }}
           />
         </View>
+
         <View style={styles.inputsCol}>
           <ContactList
             ref={listRef}
@@ -265,7 +430,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: "hidden",
   },
-
   topRow: {
     height: 64,
     paddingHorizontal: 16,
@@ -274,10 +438,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     backgroundColor: "#1F536E",
   },
-  topLeft: { flexShrink: 1, minWidth: 200, flexDirection: "column" },
-  title: { fontSize: 18, fontWeight: "800" },
-
-  topRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+  topLeft: {
+    flexShrink: 1,
+    minWidth: 200,
+    flexDirection: "column",
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  topRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   iconBtn: {
     width: 34,
     height: 34,
@@ -285,9 +459,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  statusBox: { width: 180, gap: 4 },
-
+  statusBox: {
+    width: 180,
+    gap: 4,
+  },
   content: {
     flex: 1,
     minHeight: 0,
@@ -295,10 +470,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 16,
   },
-  inputsCol: { flex: 1, gap: 8, flexDirection: "column" },
-  rightInputsCol: { alignItems: "flex-end" },
-
-  label: { fontSize: 12, fontWeight: "800", opacity: 0.9 },
+  inputsCol: {
+    flex: 1,
+    gap: 8,
+    flexDirection: "column",
+  },
+  rightInputsCol: {
+    alignItems: "flex-end",
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: "800",
+    opacity: 0.9,
+  },
   input: {
     height: 40,
     paddingHorizontal: 12,

@@ -1,13 +1,11 @@
-import React, { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View, Text } from "react-native";
-import { Spinner } from "@/components/ui/Spinner";
-import { useThemeColor } from "@/hooks/use-theme-color";
-import { Ionicons } from "@expo/vector-icons";
-import { useGetEmailsQuery, type EmailGrid } from "@/services/emailsApi";
-import { Grid, type GridColumnDef } from "@/components/grid/Grid";
 import { EmailInfos } from "@/components/emails/EmailInfos";
 import { NewEmail } from "@/components/emails/NewEmail";
-import type { GroupsAndSubGroupSelected } from "@/components/extract/SelectGroupsSubGroups";
+import { Grid, type GridColumnDef } from "@/components/grid/Grid";
+import { useThemeColor } from "@/hooks/use-theme-color";
+import { Email } from "@/types/email";
+import { Ionicons } from "@expo/vector-icons";
+import React, { useCallback, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 type PanelState =
   | { type: "grid" }
@@ -21,7 +19,7 @@ export default function EmailsScreen() {
 
   const [panel, setPanel] = useState<PanelState>({ type: "grid" });
 
-  const { data: emails = [], isLoading } = useGetEmailsQuery();
+  const emails: Email[] = [];
 
   const handleOpenEmail = useCallback((emailId: string) => {
     setPanel({ type: "emailInfos", emailId });
@@ -31,21 +29,7 @@ export default function EmailsScreen() {
     setPanel({ type: "newEmail" });
   }, []);
 
-  const handleSendNewEmail = useCallback(
-    async (payload: {
-      templateId: string;
-      groups: GroupsAndSubGroupSelected;
-    }) => {
-      // TODO: brancher sendEmail mutation ici
-      console.log("handleSendNewEmail", payload);
-
-      // retour à la grid après envoi (ou garde l'écran si tu préfères)
-      setPanel({ type: "grid" });
-    },
-    []
-  );
-
-  const columns = useMemo<GridColumnDef<EmailGrid>[]>(
+  const columns = useMemo<GridColumnDef<Email>[]>(
     () => [
       {
         accessorKey: "sendingDate",
@@ -112,9 +96,7 @@ export default function EmailsScreen() {
       </View>
 
       <View style={styles.content}>
-        {isLoading ? (
-          <Spinner fullHeight />
-        ) : (
+        {
           <>
             <View
               style={{
@@ -145,13 +127,10 @@ export default function EmailsScreen() {
                 display: panel.type === "newEmail" ? "flex" : "none",
               }}
             >
-              <NewEmail
-                onClose={() => setPanel({ type: "grid" })}
-                handleSend={handleSendNewEmail}
-              />
+              <NewEmail onClose={() => setPanel({ type: "grid" })} />
             </View>
           </>
-        )}
+        }
       </View>
     </View>
   );
