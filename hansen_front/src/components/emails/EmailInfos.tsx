@@ -1,31 +1,37 @@
-import React, { useMemo } from "react";
-import { StyleSheet, View, Text, ScrollView, Pressable } from "react-native";
-import { useThemeColor } from "@/hooks/use-theme-color";
 import { Spinner } from "@/components/ui/Spinner";
 import { TreeList, type TreeNode } from "@/components/ui/TreeList";
-import { useGetEmailQuery } from "@/services/emailsApi";
-import { Email } from "@/types/email";
+import { useThemeColor } from "@/hooks/use-theme-color";
+import { useGetEmailInfoQuery, type EmailSend } from "@/services/emailApi";
 import Ionicons from "@expo/vector-icons/build/Ionicons";
+import React, { useMemo } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 type Props = {
   emailId: string;
-  onClose: () => void; // ✅ ajouté
+  onClose: () => void;
 };
 
-type LeafData = {
-  group: Email["groups"][number];
-  subGroup: Email["groups"][number]["subGroups"][number];
-};
+type LeafData =
+  | {
+      kind: "subGroup";
+      group: NonNullable<EmailSend["affected"]>[number];
+      subGroup: NonNullable<EmailSend["affected"]>[number]["subGroups"][number];
+    }
+  | {
+      kind: "empty";
+      group: NonNullable<EmailSend["affected"]>[number];
+      subGroup: null;
+    };
 
-function formatDateFR(value?: string) {
+function formatDateFR(value?: string | null) {
   if (!value) return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(d);
+  // Version robuste (sans Intl)
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = String(d.getFullYear());
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 export function EmailInfos({ emailId, onClose }: Props) {
@@ -35,19 +41,35 @@ export function EmailInfos({ emailId, onClose }: Props) {
   const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
   const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
 
-  const { data: email, isLoading } = useGetEmailQuery({ idEmail: emailId });
+  const { data: email, isLoading } = useGetEmailInfoQuery({ id: emailId });
 
   const nodes = useMemo<TreeNode<LeafData>[]>(() => {
     if (!email) return [];
-    return (email.groups ?? []).map((g) => ({
-      id: `group:${g.id}`,
-      label: g.name,
-      children: (g.subGroups ?? []).map((sg) => ({
-        id: `sub:${g.id}:${sg.id}`,
-        label: sg.name,
-        data: { group: g, subGroup: sg },
-      })),
-    }));
+
+    const affected = email.affected ?? [];
+
+    return affected.map((g) => {
+      const subs = g.subGroups ?? [];
+
+      return {
+        id: `group:${g.groupId}`,
+        label: g.groupName,
+        children:
+          subs.length > 0
+            ? subs.map((sg) => ({
+                id: `sub:${g.groupId}:${sg.subGroupId}`,
+                label: sg.subGroupName,
+                data: { kind: "subGroup", group: g, subGroup: sg },
+              }))
+            : [
+                {
+                  id: `empty:${g.groupId}`,
+                  label: "Aucun sous-groupe",
+                  data: { kind: "empty", group: g, subGroup: null },
+                },
+              ],
+      };
+    });
   }, [email]);
 
   return (
@@ -58,20 +80,20 @@ export function EmailInfos({ emailId, onClose }: Props) {
       ]}
     >
       <View style={[styles.topRow, { backgroundColor: backgroundSecond }]}>
-        {/* ✅ Infos alignées à gauche */}
         <View style={styles.headerLeft}>
           <Text style={[styles.headerText, { color: text }]} numberOfLines={1}>
-            {formatDateFR(email?.sendingDate)}
+            {formatDateFR(email?.createdAt)}
           </Text>
+
           <Text style={[styles.headerText, { color: text }]} numberOfLines={1}>
             {email?.subject ?? ""}
           </Text>
+
           <Text style={[styles.headerText, { color: text }]} numberOfLines={1}>
-            {email?.sender?.name ?? ""}
+            {email?.status ?? ""}
           </Text>
         </View>
 
-        {/* ✅ Croix à droite */}
         <View style={styles.headerRight}>
           <Pressable
             onPress={onClose}
@@ -94,7 +116,7 @@ export function EmailInfos({ emailId, onClose }: Props) {
         ) : !email ? (
           <View style={styles.center}>
             <Text style={[styles.helperText, { color: muted }]}>
-              Email introuvable.
+              Campagne introuvable.
             </Text>
           </View>
         ) : (
@@ -107,6 +129,7 @@ export function EmailInfos({ emailId, onClose }: Props) {
               nodes={nodes}
               renderHeader={(node, { level }) => {
                 if (level !== 0) return null;
+
                 return (
                   <View style={styles.groupHeaderRow}>
                     <View style={styles.groupHeaderTitleWrap}>
@@ -128,28 +151,61 @@ export function EmailInfos({ emailId, onClose }: Props) {
                   </View>
                 );
               }}
-              renderLeaf={(node) => (
-                <View
-                  key={node.id}
-                  style={[
-                    styles.subGroupChip,
-                    { borderColor: backgroundSecond },
-                  ]}
-                >
+              renderLeaf={(node) => {
+                // Sécurité (au cas où)
+                if (!node.data) return null;
+
+                if (node.data.kind === "empty") {
+                  return (
+                    <View
+                      key={node.id}
+                      style={[
+                        styles.subGroupChip,
+                        { borderColor: backgroundSecond, opacity: 0.6 },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.bullet,
+                          { backgroundColor: backgroundSecond },
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.subGroupText,
+                          { color: backgroundSecond },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        Aucun sous-groupe
+                      </Text>
+                    </View>
+                  );
+                }
+
+                return (
                   <View
+                    key={node.id}
                     style={[
-                      styles.bullet,
-                      { backgroundColor: backgroundSecond },
+                      styles.subGroupChip,
+                      { borderColor: backgroundSecond },
                     ]}
-                  />
-                  <Text
-                    style={[styles.subGroupText, { color: backgroundSecond }]}
-                    numberOfLines={1}
                   >
-                    {node.label}
-                  </Text>
-                </View>
-              )}
+                    <View
+                      style={[
+                        styles.bullet,
+                        { backgroundColor: backgroundSecond },
+                      ]}
+                    />
+                    <Text
+                      style={[styles.subGroupText, { color: backgroundSecond }]}
+                      numberOfLines={1}
+                    >
+                      {node.label}
+                    </Text>
+                  </View>
+                );
+              }}
             />
           </ScrollView>
         )}

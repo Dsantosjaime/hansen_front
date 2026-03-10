@@ -1,12 +1,11 @@
-// src/store/store.ts
-import { brevoMarketingApi } from "@/services/brevoMarketingApi";
+import { emailApi } from "@/services/emailApi";
 import { contactsApi } from "@/services/contactsApi";
-import { emailsApi } from "@/services/emailsApi";
 import { groupsApi } from "@/services/groupsApi";
 import { permissionGroupApi } from "@/services/permissionGroupApi";
 import { pluginParamsApi } from "@/services/pluginParamsApi";
 import { rolesApi } from "@/services/rolesApi";
 import { subGroupsApi } from "@/services/subgroupsApi";
+import { todoApi } from "@/services/todoApi";
 import { usersApi } from "@/services/usersApi";
 import { authReducer } from "@/slices/authSlice";
 import { configureStore } from "@reduxjs/toolkit";
@@ -21,8 +20,8 @@ export const store = configureStore({
     [rolesApi.reducerPath]: rolesApi.reducer,
     [usersApi.reducerPath]: usersApi.reducer,
     [pluginParamsApi.reducerPath]: pluginParamsApi.reducer,
-    [emailsApi.reducerPath]: emailsApi.reducer,
-    [brevoMarketingApi.reducerPath]: brevoMarketingApi.reducer,
+    [emailApi.reducerPath]: emailApi.reducer,
+    [todoApi.reducerPath]: todoApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
@@ -33,8 +32,8 @@ export const store = configureStore({
       rolesApi.middleware,
       usersApi.middleware,
       pluginParamsApi.middleware,
-      emailsApi.middleware,
-      brevoMarketingApi.middleware
+      emailApi.middleware,
+      todoApi.middleware
     ),
 });
 

@@ -5,12 +5,14 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Select } from "@/components/ui/Select";
 import type { SelectOption } from "@/components/ui/select.types";
 import { useThemeColor } from "@/hooks/use-theme-color";
+import { useExtractContactsMutation } from "@/services/extractApi";
 import { useGetGroupsQuery } from "@/services/groupsApi";
 
 import {
   SelectGroupsSubGroups,
   type GroupsAndSubGroupSelected,
 } from "@/components/extract/SelectGroupsSubGroups";
+import { exportExtractToExcel } from "@/services/extractExport";
 
 export default function ExtractScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
@@ -22,6 +24,9 @@ export default function ExtractScreen() {
   const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
 
   const { data: groups = [], isFetching } = useGetGroupsQuery();
+
+  const [extractContacts, { isLoading: isExtracting, error: extractError }] =
+    useExtractContactsMutation();
 
   const ALL = "__ALL__";
   const [filterGroupId, setFilterGroupId] = useState<string>(ALL);
@@ -35,12 +40,24 @@ export default function ExtractScreen() {
   );
 
   const [selected, setSelected] = useState<GroupsAndSubGroupSelected>([]);
-
   const hasSelection = useMemo(() => selected.length > 0, [selected]);
 
-  const extractData = useCallback((payload: GroupsAndSubGroupSelected) => {
-    setSelected([]);
-  }, []);
+  const extractData = useCallback(
+    async (payload: GroupsAndSubGroupSelected) => {
+      try {
+        // Appel serveur ici
+        const result = await extractContacts(payload).unwrap();
+
+        await exportExtractToExcel(result, { fileName: "hansen_extract.xlsx" });
+
+        // Optionnel: reset de la sélection
+        setSelected([]);
+      } catch (e) {
+        console.log("Extract error:", e);
+      }
+    },
+    [extractContacts]
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: backgroundLight }]}>
@@ -58,33 +75,41 @@ export default function ExtractScreen() {
         </View>
 
         <View>
-          <Text
-            style={[styles.extractBtnText, { color: textDark }]}
-          >{`Groupe(s) concernés: ${selected.length}`}</Text>
-          <Text
-            style={[styles.extractBtnText, { color: textDark }]}
-          >{`Sous-Groupe(s) concernés: ${selected.reduce(
-            (sum, e) => sum + (e.subGroups?.length ?? 0),
-            0
-          )}`}</Text>
+          <Text style={[styles.extractBtnText, { color: textDark }]}>
+            {`Groupe(s) concernés: ${selected.length}`}
+          </Text>
+          <Text style={[styles.extractBtnText, { color: textDark }]}>
+            {`Sous-Groupe(s) concernés: ${selected.reduce(
+              (sum, e) => sum + (e.subGroups?.length ?? 0),
+              0
+            )}`}
+          </Text>
         </View>
 
         <Pressable
           onPress={() => extractData(selected)}
-          disabled={!hasSelection}
+          disabled={!hasSelection || isExtracting}
           style={({ pressed }) => [
             styles.extractBtn,
             { backgroundColor: backgroundSecond, borderColor: border },
-            pressed && hasSelection && styles.pressed,
-            !hasSelection && styles.disabled,
+            pressed && hasSelection && !isExtracting && styles.pressed,
+            (!hasSelection || isExtracting) && styles.disabled,
           ]}
           accessibilityRole="button"
           accessibilityLabel="Extraire"
         >
           <Ionicons name="download-outline" size={20} color={text} />
-          <Text style={[styles.extractBtnText, { color: text }]}>Extraire</Text>
+          <Text style={[styles.extractBtnText, { color: text }]}>
+            {isExtracting ? "Extraction..." : "Extraire"}
+          </Text>
         </Pressable>
       </View>
+
+      {!!extractError && (
+        <Text style={{ color: muted, marginBottom: 8, fontWeight: "700" }}>
+          Une erreur est survenue pendant l’extraction.
+        </Text>
+      )}
 
       <View
         style={[
@@ -112,10 +137,7 @@ export default function ExtractScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-  },
+  container: { flex: 1, padding: 20 },
   pageHeader: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -123,9 +145,7 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 12,
   },
-  filterWrap: {
-    flex: 1,
-  },
+  filterWrap: { flex: 1 },
   extractBtn: {
     height: 42,
     paddingHorizontal: 12,
@@ -135,16 +155,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  extractBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
+  extractBtnText: { fontSize: 13, fontWeight: "800" },
+  pressed: { opacity: 0.8 },
+  disabled: { opacity: 0.5 },
   card: {
     flex: 1,
     minHeight: 0,
@@ -152,12 +165,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: "hidden",
   },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  loadingText: {
-    fontWeight: "700",
-  },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loadingText: { fontWeight: "700" },
 });

@@ -4,6 +4,7 @@ import React, {
   useMemo,
   useState,
   useCallback,
+  useEffect,
 } from "react";
 import {
   Pressable,
@@ -22,6 +23,7 @@ type ListRow = {
   id: string;
   sentAt: string; // ISO string
   subject: string;
+  checked?: boolean; // <-- NEW (pour Todo.done)
 };
 
 type Props = {
@@ -32,7 +34,7 @@ type Props = {
   isLoading: boolean;
   shouldFetch: boolean;
 
-  onCheckRow?: (id: string, draftSubject: string) => void;
+  onCheckRow?: (id: string, draftSubject: string, checked: boolean) => void; // <-- NEW
   onAddLine?: (sentAtISO: string, subject: string) => void | Promise<void>;
 };
 
@@ -110,6 +112,15 @@ export const ContactList = forwardRef<ContactListHandle, Props>(
     // Selection locale (juste pour visuel). La source de vérité peut être dans le parent plus tard.
     const [checkedIds, setCheckedIds] = useState<Record<string, boolean>>({});
 
+    useEffect(() => {
+      if (!showCheck) return;
+
+      const next: Record<string, boolean> = {};
+      for (const row of data) next[row.id] = !!row.checked;
+
+      setCheckedIds(next);
+    }, [data, showCheck]);
+
     // Ajout ligne
     const [isAdding, setIsAdding] = useState(false);
     const [draftDate, setDraftDate] = useState("");
@@ -120,8 +131,11 @@ export const ContactList = forwardRef<ContactListHandle, Props>(
 
     const toggleCheck = useCallback(
       (id: string, subject: string) => {
-        setCheckedIds((prev) => ({ ...prev, [id]: !prev[id] }));
-        onCheckRow?.(id, subject);
+        setCheckedIds((prev) => {
+          const nextChecked = !prev[id];
+          onCheckRow?.(id, subject, nextChecked);
+          return { ...prev, [id]: nextChecked };
+        });
       },
       [onCheckRow]
     );

@@ -27,12 +27,6 @@ export type Contact = {
   subGroupId: string;
 };
 
-export type ContactEmail = {
-  id: string;
-  sentAt: string; // ISO
-  subject: string;
-};
-
 export type CreateContactDto = {
   firstName: string;
   lastName: string;
@@ -50,7 +44,7 @@ export type UpdateContactDto = Partial<CreateContactDto>;
 
 export const contactsApi = createApi({
   reducerPath: "contactsApi",
-  tagTypes: ["Contacts"],
+  tagTypes: ["Contacts", "EmailHistory"],
   baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
     /**
@@ -147,17 +141,6 @@ export const contactsApi = createApi({
         { type: "Contacts", id: arg.id },
       ],
     }),
-
-    /**
-     * Pas encore implémenté côté backend (à créer si tu veux)
-     * Exemple de route à créer: GET /contacts/:id/emails
-     */
-    getContactEmails: builder.query<ContactEmail[], { contactId: string }>({
-      query: ({ contactId }) => ({
-        url: `/contacts/${contactId}/emails`,
-        method: "GET",
-      }),
-    }),
   }),
 });
 
@@ -168,5 +151,4 @@ export const {
   useCreateContactMutation,
   useUpdateContactMutation,
   useDeleteContactMutation,
-  useGetContactEmailsQuery,
 } = contactsApi;

@@ -4,7 +4,6 @@ import {
   Contact,
   Status,
   useCreateContactMutation,
-  useGetContactEmailsQuery,
   useUpdateContactMutation,
 } from "@/services/contactsApi";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,6 +18,13 @@ import React, {
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Select } from "../ui/Select";
 import { SelectOption } from "../ui/select.types";
+import {
+  ToDoType,
+  useCreateTodoMutation,
+  useGetTodosByContactQuery,
+  useUpdateTodoMutation,
+} from "@/services/todoApi";
+import { useGetContactEmailsQuery } from "@/services/emailApi";
 
 type Mode = "create" | "edit";
 
@@ -132,6 +138,117 @@ export function ContactInfos({
 
   const { data: emails = [], isLoading: listEmailIsLoading } =
     useGetContactEmailsQuery(queryArg);
+
+  /**
+   * FIX typage ContactEmail[] -> ListRow[]
+   * ContactList attend sentAt: string (obligatoire), on force une string.
+   */
+  const emailRows = useMemo(() => {
+    return emails.map((e) => ({
+      id: e.id,
+      sentAt: e.sentAt ?? e.createdAt ?? "",
+      subject: e.subject || "(sans sujet)",
+    }));
+  }, [emails]);
+
+  // Todo
+  const [createTodo] = useCreateTodoMutation();
+  const [updateTodo] = useUpdateTodoMutation();
+
+  const todosQueryArg = useMemo(() => {
+    return shouldFetch ? { contactId: effectiveContact!.id } : skipToken;
+  }, [shouldFetch, effectiveContact]);
+
+  const { data: todos = [], isLoading: todosIsLoading } =
+    useGetTodosByContactQuery(todosQueryArg);
+
+  const todosById = useMemo(() => {
+    return new Map(todos.map((t) => [t.id, t]));
+  }, [todos]);
+
+  const serviceRows = useMemo(() => {
+    return todos
+      .filter((t) => t.type === ToDoType.SERVICE)
+      .map((t) => ({
+        id: t.id,
+        sentAt: t.toDoAt,
+        subject: t.title,
+        checked: t.done,
+      }));
+  }, [todos]);
+
+  const reminderRows = useMemo(() => {
+    return todos
+      .filter((t) => t.type === ToDoType.REMINDER)
+      .map((t) => ({
+        id: t.id,
+        sentAt: t.toDoAt,
+        subject: t.title,
+        checked: t.done,
+      }));
+  }, [todos]);
+
+  const onAddService = useCallback(
+    async (sentAtISO: string, subject: string) => {
+      const contactId = effectiveContact?.id;
+      if (!contactId) return;
+
+      await createTodo({
+        contactId,
+        type: ToDoType.SERVICE,
+        title: subject,
+        toDoAt: sentAtISO,
+        done: false,
+      }).unwrap();
+    },
+    [createTodo, effectiveContact?.id]
+  );
+
+  const onAddReminder = useCallback(
+    async (sentAtISO: string, subject: string) => {
+      const contactId = effectiveContact?.id;
+      if (!contactId) return;
+
+      await createTodo({
+        contactId,
+        type: ToDoType.REMINDER,
+        title: subject,
+        toDoAt: sentAtISO,
+        done: false,
+      }).unwrap();
+    },
+    [createTodo, effectiveContact?.id]
+  );
+
+  /**
+   * Factorisation: on centralise la MAJ du done ici,
+   * au lieu de dupliquer updateTodo dans chaque ContactList.
+   */
+  const setTodoDone = useCallback(
+    async (todoId: string, done: boolean) => {
+      const contactId = effectiveContact?.id;
+      if (!contactId) return;
+
+      await updateTodo({
+        id: todoId,
+        contactId,
+        data: { done },
+      }).unwrap();
+    },
+    [effectiveContact?.id, updateTodo]
+  );
+
+  // Optionnel: toggle basé sur setTodoDone
+  const toggleTodoDone = useCallback(
+    async (todoId: string) => {
+      const todo = todosById.get(todoId);
+      if (!todo) return;
+      await setTodoDone(todoId, !todo.done);
+    },
+    [setTodoDone, todosById]
+  );
+
+  ///// Todo END
 
   const statusOptions: SelectOption<Status>[] = useMemo(
     () => [
@@ -267,7 +384,6 @@ export function ContactInfos({
         </View>
 
         <View style={styles.topRight}>
-          {/* ✅ Bouton Save uniquement en CREATE (désactivé + grisé si champs requis manquants) */}
           {effectiveMode === "create" ? (
             <Pressable
               onPress={onSave}
@@ -279,7 +395,6 @@ export function ContactInfos({
                 return [
                   styles.iconBtn,
                   {
-                    // rendu "grisé"
                     backgroundColor: disabled
                       ? "rgba(255,255,255,0.08)"
                       : "rgba(255,255,255,0.16)",
@@ -387,7 +502,7 @@ export function ContactInfos({
             emptyListPlaceHolder={"Aucun Email envoyés"}
             shouldFetch={shouldFetch}
             isLoading={listEmailIsLoading}
-            data={emails}
+            data={emailRows}
           />
         </View>
 
@@ -396,10 +511,15 @@ export function ContactInfos({
             title={"Services"}
             emptyListPlaceHolder={"Pas de Services notés"}
             shouldFetch={shouldFetch}
-            isLoading={listEmailIsLoading}
-            data={emails}
-            onAddLine={() => {}}
-            onCheckRow={(_id: string, draftSubject: string) => {
+            isLoading={todosIsLoading}
+            data={serviceRows}
+            onAddLine={onAddService}
+            onCheckRow={async (
+              id: string,
+              draftSubject: string,
+              checked: boolean
+            ) => {
+              await setTodoDone(id, checked);
               listRef.current?.setDraftFromOutside(draftSubject);
             }}
           />
@@ -411,10 +531,16 @@ export function ContactInfos({
             title={"Rappels"}
             emptyListPlaceHolder={"Pas de Rappels notés"}
             shouldFetch={shouldFetch}
-            isLoading={listEmailIsLoading}
-            data={emails}
-            onAddLine={() => {}}
-            onCheckRow={() => {}}
+            isLoading={todosIsLoading}
+            data={reminderRows}
+            onAddLine={onAddReminder}
+            onCheckRow={async (
+              id: string,
+              _draftSubject: string,
+              checked: boolean
+            ) => {
+              await setTodoDone(id, checked);
+            }}
           />
         </View>
       </View>

@@ -12,10 +12,12 @@ import {
   type GroupsAndSubGroupSelected,
 } from "@/components/extract/SelectGroupsSubGroups";
 import {
-  useGetBrevoMarketingTemplatesQuery,
-  useSendBrevoMarketingCampaignMutation,
-} from "@/services/brevoMarketingApi";
+  useGetEmailMarketingTemplatesQuery,
+  useSendEmailMarketingCampaignMutation,
+} from "@/services/emailApi";
 import { useGetGroupsQuery } from "@/services/groupsApi";
+
+import * as DocumentPicker from "expo-document-picker";
 
 type Props = {
   onClose: () => void;
@@ -36,6 +38,32 @@ export function NewEmail({ onClose, handleSend }: Props) {
   const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
   const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
 
+  // Attachments
+  const MAX_ATTACHMENT_SIZE = 4 * 1024 * 1024;
+
+  const [attachmentAsset, setAttachmentAsset] =
+    useState<DocumentPicker.DocumentPickerAsset | null>(null);
+
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+
+  const onPickAttachment = useCallback(async () => {
+    const asset = await pickAttachment();
+    if (!asset) return;
+
+    // Vérif taille (quand dispo)
+    if (typeof asset.size === "number" && asset.size > MAX_ATTACHMENT_SIZE) {
+      // Remplace par ton système de toast/alert
+      console.warn("Fichier trop volumineux (max 4 Mo)");
+      return;
+    }
+
+    setAttachmentAsset(asset);
+  }, [MAX_ATTACHMENT_SIZE]);
+
+  const onRemoveAttachment = useCallback(() => {
+    setAttachmentAsset(null);
+  }, []);
+
   // Groups
   const { data: groups = [], isFetching } = useGetGroupsQuery();
 
@@ -44,10 +72,10 @@ export function NewEmail({ onClose, handleSend }: Props) {
     data: templates = [],
     isFetching: templatesFetching,
     isLoading: templatesLoading,
-  } = useGetBrevoMarketingTemplatesQuery();
+  } = useGetEmailMarketingTemplatesQuery();
 
   const [sendCampaign, { isLoading: sending }] =
-    useSendBrevoMarketingCampaignMutation();
+    useSendEmailMarketingCampaignMutation();
 
   const templatesBusy = templatesFetching || templatesLoading;
 
@@ -77,8 +105,9 @@ export function NewEmail({ onClose, handleSend }: Props) {
   const [selected, setSelected] = useState<GroupsAndSubGroupSelected>([]);
 
   const canSend = useMemo(
-    () => !!templateId && selected.length > 0 && !sending,
-    [templateId, selected.length, sending]
+    () =>
+      !!templateId && selected.length > 0 && !sending && !uploadingAttachment,
+    [templateId, selected.length, sending, uploadingAttachment]
   );
 
   const toIdsPayload = useCallback((sel: GroupsAndSubGroupSelected) => {
@@ -106,21 +135,41 @@ export function NewEmail({ onClose, handleSend }: Props) {
 
     const { subGroupIds } = toIdsPayload(selected);
 
-    const result = await sendCampaign({
-      templateId,
-      subGroupIds: subGroupIds.length ? subGroupIds : undefined,
-    }).unwrap();
+    let attachmentUrl: string | undefined = undefined;
 
-    await handleSend?.({
-      templateId,
-      groups: selected,
-      campaignId: result.campaignId,
-    });
+    try {
+      if (attachmentAsset) {
+        setUploadingAttachment(true);
+        const uploaded = await uploadAttachment(attachmentAsset);
+        attachmentUrl = uploaded.attachmentUrl;
+      }
 
-    // reset après envoi (optionnel)
-    setSelected([]);
-    setTemplateId(null);
-  }, [handleSend, selected, sendCampaign, templateId, toIdsPayload]);
+      const result = await sendCampaign({
+        templateId,
+        subGroupIds: subGroupIds.length ? subGroupIds : undefined,
+        attachmentUrl: attachmentUrl ?? "",
+      }).unwrap();
+
+      await handleSend?.({
+        templateId,
+        groups: selected,
+        campaignId: result.campaignId,
+      });
+
+      setSelected([]);
+      setTemplateId(null);
+      setAttachmentAsset(null);
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }, [
+    templateId,
+    selected,
+    toIdsPayload,
+    attachmentAsset,
+    sendCampaign,
+    handleSend,
+  ]);
 
   return (
     <View
@@ -147,7 +196,45 @@ export function NewEmail({ onClose, handleSend }: Props) {
               disabled={templatesBusy || templateOptions.length === 0}
             />
           </View>
+
+          <Pressable
+            onPress={onPickAttachment}
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              { opacity: pressed ? 0.7 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Ajouter une pièce jointe"
+          >
+            <Ionicons name="attach-outline" size={22} color={text} />
+          </Pressable>
         </View>
+
+        {attachmentAsset ? (
+          <View style={styles.attachmentRow}>
+            <Text
+              numberOfLines={1}
+              style={[styles.attachmentText, { color: textDark }]}
+            >
+              {attachmentAsset.name ?? "Pièce jointe"}
+            </Text>
+
+            <Pressable
+              onPress={onRemoveAttachment}
+              hitSlop={10}
+              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Retirer la pièce jointe"
+            >
+              <Ionicons
+                name="close-circle-outline"
+                size={18}
+                color={textDark}
+              />
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.headerRight}>
           <Pressable
@@ -229,6 +316,46 @@ export function NewEmail({ onClose, handleSend }: Props) {
   );
 }
 
+type UploadedAttachment = {
+  attachmentUrl: string;
+  filename: string;
+  size: number;
+  mimeType: string;
+};
+
+async function pickAttachment(): Promise<DocumentPicker.DocumentPickerAsset | null> {
+  const res = await DocumentPicker.getDocumentAsync({
+    multiple: false,
+    copyToCacheDirectory: true,
+  });
+
+  if (res.canceled) return null;
+  return res.assets[0];
+}
+
+async function uploadAttachment(
+  asset: DocumentPicker.DocumentPickerAsset
+): Promise<UploadedAttachment> {
+  const form = new FormData();
+
+  form.append("file", {
+    uri: asset.uri,
+    name: asset.name ?? "attachment",
+    type: asset.mimeType ?? "application/octet-stream",
+  } as any);
+
+  const r = await fetch(
+    `${process.env.EXPO_PUBLIC_API_BASE_URL}/campaign-attachments/upload`,
+    {
+      method: "POST",
+      body: form,
+    }
+  );
+
+  if (!r.ok) throw new Error(await r.text());
+  return await r.json();
+}
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -247,8 +374,9 @@ const styles = StyleSheet.create({
   },
   headerLeft: {
     flex: 1,
+    flexDirection: "row",
     minWidth: 0,
-    justifyContent: "center",
+    justifyContent: "flex-start",
   },
   templateSelectWrap: {
     maxWidth: 520,
@@ -306,4 +434,16 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   loadingText: { fontWeight: "700" },
+  attachmentRow: {
+    marginTop: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  attachmentText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "700",
+  },
 });

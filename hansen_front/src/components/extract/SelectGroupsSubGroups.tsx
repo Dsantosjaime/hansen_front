@@ -12,7 +12,9 @@ export type GroupsAndSubGroupSelected = {
   subGroups: { id: string; name: string }[];
 }[];
 
-type LeafData = { group: Group; subGroup: SubGroup };
+type LeafData =
+  | { kind: "subGroup"; group: Group; subGroup: SubGroup }
+  | { kind: "empty"; group: Group; subGroup: null };
 
 export type SelectGroupsSubGroupsProps = {
   groups: Group[];
@@ -117,6 +119,12 @@ export function SelectGroupsSubGroups({
 
   const toggleAllSubGroupsOfGroup = useCallback(
     (group: Group) => {
+      const subs = group.subGroups ?? [];
+      if (subs.length === 0) {
+        // Rien à cocher
+        return;
+      }
+
       const { all } = getGroupCheckState(group);
       const next = [...value];
 
@@ -130,16 +138,14 @@ export function SelectGroupsSubGroups({
       }
 
       // cocher tous les sous-groupes
-      const allSubGroups = (group.subGroups ?? []).map((sg) => ({
-        id: sg.id,
-        name: sg.name,
-      }));
+      const allSubGroups = subs.map((sg) => ({ id: sg.id, name: sg.name }));
 
       const nextGroupEntry = {
         id: group.id,
         name: group.name,
         subGroups: allSubGroups,
       };
+
       if (gIdx >= 0) next[gIdx] = nextGroupEntry;
       else next.push(nextGroupEntry);
 
@@ -149,15 +155,28 @@ export function SelectGroupsSubGroups({
   );
 
   const nodes = useMemo<TreeNode<LeafData>[]>(() => {
-    return displayedGroups.map((g) => ({
-      id: `group:${g.id}`,
-      label: g.name,
-      children: (g.subGroups ?? []).map((sg) => ({
-        id: leafKey(g.id, sg.id), // unique même si sg.id dupliqué dans d'autres groupes
-        label: sg.name,
-        data: { group: g, subGroup: sg },
-      })),
-    }));
+    return displayedGroups.map((g) => {
+      const subs = g.subGroups ?? [];
+
+      return {
+        id: `group:${g.id}`,
+        label: g.name,
+        children:
+          subs.length > 0
+            ? subs.map((sg) => ({
+                id: leafKey(g.id, sg.id),
+                label: sg.name,
+                data: { kind: "subGroup", group: g, subGroup: sg },
+              }))
+            : [
+                {
+                  id: `empty:${g.id}`,
+                  label: "Aucun sous-groupe",
+                  data: { kind: "empty", group: g, subGroup: null },
+                },
+              ],
+      };
+    });
   }, [displayedGroups]);
 
   return (
@@ -171,14 +190,22 @@ export function SelectGroupsSubGroups({
           const group = groups.find((g) => g.id === groupId);
           if (!group) return null;
 
+          const subs = group.subGroups ?? [];
+          const disabled = subs.length === 0;
+
           const { all, some } = getGroupCheckState(group);
 
           return (
             <Pressable
               onPress={() => toggleAllSubGroupsOfGroup(group)}
-              style={styles.groupHeaderRow}
+              disabled={disabled}
+              style={({ pressed }) => [
+                styles.groupHeaderRow,
+                disabled && { opacity: 0.5 },
+                pressed && !disabled && styles.pressed,
+              ]}
               accessibilityRole="checkbox"
-              accessibilityState={{ checked: all }}
+              accessibilityState={{ checked: all, disabled }}
             >
               <View
                 style={[
@@ -210,7 +237,32 @@ export function SelectGroupsSubGroups({
           );
         }}
         renderLeaf={(node) => {
-          const data = node.data!;
+          // Guard anti-crash si TreeList appelle renderLeaf sur un node sans data
+          if (!node.data) return null;
+
+          const data = node.data;
+
+          // Leaf placeholder pour groupe vide
+          if (data.kind === "empty") {
+            return (
+              <View
+                style={[
+                  styles.subGroupChip,
+                  { borderColor: accent, opacity: 0.6 },
+                ]}
+              >
+                <View style={[styles.checkbox, { borderColor: accent }]} />
+                <Text
+                  style={[styles.subGroupText, { color: accent }]}
+                  numberOfLines={1}
+                >
+                  Aucun sous-groupe
+                </Text>
+              </View>
+            );
+          }
+
+          // Leaf normal (subgroup)
           const checked = isSubGroupChecked(data.group.id, data.subGroup.id);
 
           return (

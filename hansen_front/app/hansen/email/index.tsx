@@ -2,7 +2,7 @@ import { EmailInfos } from "@/components/emails/EmailInfos";
 import { NewEmail } from "@/components/emails/NewEmail";
 import { Grid, type GridColumnDef } from "@/components/grid/Grid";
 import { useThemeColor } from "@/hooks/use-theme-color";
-import { Email } from "@/types/email";
+import { useGetEmailMarketingCampaignsQuery } from "@/services/emailApi";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -12,6 +12,26 @@ type PanelState =
   | { type: "emailInfos"; emailId: string }
   | { type: "newEmail" };
 
+type CampaignRow = {
+  id: string;
+  brevoCampaignId: string;
+  subject: string;
+  status: string;
+  createdAt?: string | null;
+  scheduledAt?: string | null;
+};
+
+function formatDateFR(value?: string | null) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
+}
+
 export default function EmailsScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
@@ -19,7 +39,25 @@ export default function EmailsScreen() {
 
   const [panel, setPanel] = useState<PanelState>({ type: "grid" });
 
-  const emails: Email[] = [];
+  const { data, isFetching } = useGetEmailMarketingCampaignsQuery({
+    limit: 50,
+    offset: 0,
+  });
+
+  const campaigns = useMemo(() => data?.items ?? [], [data?.items]);
+
+  const emails: CampaignRow[] = useMemo(
+    () =>
+      campaigns.map((c) => ({
+        id: c.id,
+        brevoCampaignId: c.brevoCampaignId,
+        subject: c.subject,
+        status: c.status,
+        createdAt: c.createdAt ?? null,
+        scheduledAt: c.scheduledAt ?? null,
+      })),
+    [campaigns]
+  );
 
   const handleOpenEmail = useCallback((emailId: string) => {
     setPanel({ type: "emailInfos", emailId });
@@ -29,30 +67,21 @@ export default function EmailsScreen() {
     setPanel({ type: "newEmail" });
   }, []);
 
-  const columns = useMemo<GridColumnDef<Email>[]>(
+  const columns = useMemo<GridColumnDef<CampaignRow>[]>(
     () => [
       {
-        accessorKey: "sendingDate",
-        header: "Date d'envoi",
-        cell: (info) => {
-          const v = info.getValue();
-          if (!v) return "";
-          const d = v instanceof Date ? v : new Date(String(v));
-          if (Number.isNaN(d.getTime())) return "";
-          return new Intl.DateTimeFormat("fr-FR", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-          }).format(d);
-        },
+        accessorKey: "createdAt",
+        header: "Créée le",
+        cell: (info) => formatDateFR(info.getValue() as string | null),
       },
-      { accessorKey: "subject", header: "Objet" },
       {
-        id: "sender",
-        header: "Envoyé par",
-        accessorFn: (row) => row.sender?.name ?? "",
-        cell: (info) => String(info.getValue() ?? ""),
+        accessorKey: "scheduledAt",
+        header: "Programmée le",
+        cell: (info) => formatDateFR(info.getValue() as string | null),
       },
+      { accessorKey: "brevoCampaignId", header: "ID Campagne" },
+      { accessorKey: "subject", header: "Objet" },
+      { accessorKey: "status", header: "Statut" },
       {
         id: "actions",
         header: "Consulter",
@@ -67,7 +96,7 @@ export default function EmailsScreen() {
               { opacity: pressed ? 0.7 : 1 },
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Consulter l'email"
+            accessibilityLabel="Consulter la campagne"
           >
             <Ionicons name="open-outline" size={18} color="#1F536E" />
           </Pressable>
@@ -89,6 +118,7 @@ export default function EmailsScreen() {
           ]}
           accessibilityRole="button"
           accessibilityLabel="Nouveau Mail"
+          disabled={isFetching}
         >
           <Ionicons name="send-outline" size={20} color={text} />
           <Text style={[styles.btnText, { color: text }]}>Nouveau Mail</Text>
@@ -96,41 +126,26 @@ export default function EmailsScreen() {
       </View>
 
       <View style={styles.content}>
-        {
-          <>
-            <View
-              style={{
-                flex: 1,
-                display: panel.type === "grid" ? "flex" : "none",
-              }}
-            >
-              <Grid data={emails} columns={columns} pageSize={10} />
-            </View>
+        {panel.type === "grid" ? (
+          <View style={{ flex: 1 }}>
+            <Grid data={emails} columns={columns} pageSize={10} />
+          </View>
+        ) : null}
 
-            <View
-              style={{
-                flex: 1,
-                display: panel.type === "emailInfos" ? "flex" : "none",
-              }}
-            >
-              {panel.type === "emailInfos" ? (
-                <EmailInfos
-                  emailId={panel.emailId}
-                  onClose={() => setPanel({ type: "grid" })}
-                />
-              ) : null}
-            </View>
+        {panel.type === "emailInfos" ? (
+          <View style={{ flex: 1 }}>
+            <EmailInfos
+              emailId={panel.emailId}
+              onClose={() => setPanel({ type: "grid" })}
+            />
+          </View>
+        ) : null}
 
-            <View
-              style={{
-                flex: 1,
-                display: panel.type === "newEmail" ? "flex" : "none",
-              }}
-            >
-              <NewEmail onClose={() => setPanel({ type: "grid" })} />
-            </View>
-          </>
-        }
+        {panel.type === "newEmail" ? (
+          <View style={{ flex: 1 }}>
+            <NewEmail onClose={() => setPanel({ type: "grid" })} />
+          </View>
+        ) : null}
       </View>
     </View>
   );

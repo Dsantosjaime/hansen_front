@@ -1,224 +1,96 @@
 import { createApi } from "@reduxjs/toolkit/query/react";
 import { baseQueryWithKeycloakRefresh } from "./baseQueryWithKeycloak";
 
-export type StateWithAuth = {
-  auth: {
-    token?: string | null;
-  };
-};
+export const PluginParamType = {
+  FUNCTION: "FUNCTION",
+  NAME: "NAME",
+} as const;
 
-// --------------------
-// Types
-// --------------------
-export type OmitedFunction = {
-  id: string;
-  function: string;
-};
+export type PluginParamTypeValue =
+  (typeof PluginParamType)[keyof typeof PluginParamType];
 
-export type GetOmitedFunctionsResponse = {
-  omitedFunctions: OmitedFunction[];
-};
-
-export type NameDiscriminator = {
+export type PluginParam = {
   id: string;
   name: string;
+  type: PluginParamTypeValue;
 };
 
-export type GetNameDiscriminatorsResponse = {
-  nameDiscriminators: NameDiscriminator[];
+export type CreatePluginParamDto = {
+  name: string;
+  type: PluginParamTypeValue;
 };
 
-// --------------------
-// Mock storage (in-memory)
-// --------------------
-let mockOmitedFunctions: OmitedFunction[] = [
-  { id: "of-1", function: "it dev" },
-  { id: "of-2", function: "responsable achat" },
-];
+export type UpdatePluginParamDto = {
+  name?: string;
+  type?: PluginParamTypeValue;
+};
 
-let mockNameDiscriminators: NameDiscriminator[] = [
-  { id: "nd-1", name: "utilisateur linkedin" },
-  { id: "nd-2", name: "test deux" },
-];
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const uid = (prefix: string) =>
-  `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-// --------------------
-// API
-// --------------------
 export const pluginParamsApi = createApi({
   reducerPath: "pluginParamsApi",
-  tagTypes: ["OmitedFunctions", "NameDiscriminators"],
   baseQuery: baseQueryWithKeycloakRefresh,
+  tagTypes: ["PluginParams"],
   endpoints: (builder) => ({
-    // --------------------
-    // Omited Functions
-    // --------------------
-    getOmitedFunctions: builder.query<GetOmitedFunctionsResponse, void>({
-      async queryFn() {
-        await sleep(400);
-        return { data: { omitedFunctions: mockOmitedFunctions } };
-      },
+    // GET /plugin-params
+    getPluginParams: builder.query<PluginParam[], void>({
+      query: () => ({
+        url: "/plugin-params",
+        method: "GET",
+      }),
       providesTags: (result) =>
         result
           ? [
-              { type: "OmitedFunctions", id: "LIST" },
-              ...result.omitedFunctions.map((x) => ({
-                type: "OmitedFunctions" as const,
+              { type: "PluginParams" as const, id: "LIST" },
+              ...result.map((x) => ({
+                type: "PluginParams" as const,
                 id: x.id,
               })),
             ]
-          : [{ type: "OmitedFunctions", id: "LIST" }],
+          : [{ type: "PluginParams" as const, id: "LIST" }],
     }),
 
-    addOmitedFunction: builder.mutation<OmitedFunction, { function: string }>({
-      async queryFn({ function: fn }) {
-        await sleep(400);
-        const created: OmitedFunction = { id: uid("of"), function: fn };
-        mockOmitedFunctions = [created, ...mockOmitedFunctions];
-        return { data: created };
-      },
-      invalidatesTags: [{ type: "OmitedFunctions", id: "LIST" }],
+    // POST /plugin-params
+    createPluginParam: builder.mutation<PluginParam, CreatePluginParamDto>({
+      query: (body) => ({
+        url: "/plugin-params",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: [{ type: "PluginParams", id: "LIST" }],
     }),
 
-    modifyOmitedFunction: builder.mutation<
-      OmitedFunction,
-      { id: string; function: string }
+    // PATCH /plugin-params/:id
+    updatePluginParam: builder.mutation<
+      PluginParam,
+      { id: string; data: UpdatePluginParamDto }
     >({
-      async queryFn({ id, function: fn }) {
-        await sleep(400);
-        const idx = mockOmitedFunctions.findIndex((x) => x.id === id);
-        if (idx === -1) {
-          return {
-            error: { status: 404, data: "OmitedFunction not found" } as any,
-          };
-        }
-        const updated: OmitedFunction = {
-          ...mockOmitedFunctions[idx],
-          function: fn,
-        };
-        mockOmitedFunctions = mockOmitedFunctions.map((x) =>
-          x.id === id ? updated : x
-        );
-        return { data: updated };
-      },
+      query: ({ id, data }) => ({
+        url: `/plugin-params/${id}`,
+        method: "PATCH",
+        body: data,
+      }),
       invalidatesTags: (_res, _err, arg) => [
-        { type: "OmitedFunctions", id: arg.id },
-        { type: "OmitedFunctions", id: "LIST" },
+        { type: "PluginParams", id: "LIST" },
+        { type: "PluginParams", id: arg.id },
       ],
     }),
 
-    deleteOmitedFunction: builder.mutation<OmitedFunction, { id: string }>({
-      async queryFn({ id }) {
-        await sleep(400);
-        const existing = mockOmitedFunctions.find((x) => x.id === id);
-        if (!existing) {
-          return {
-            error: { status: 404, data: "OmitedFunction not found" } as any,
-          };
-        }
-        mockOmitedFunctions = mockOmitedFunctions.filter((x) => x.id !== id);
-        return { data: existing };
-      },
+    // DELETE /plugin-params/:id
+    deletePluginParam: builder.mutation<PluginParam, { id: string }>({
+      query: ({ id }) => ({
+        url: `/plugin-params/${id}`,
+        method: "DELETE",
+      }),
       invalidatesTags: (_res, _err, arg) => [
-        { type: "OmitedFunctions", id: arg.id },
-        { type: "OmitedFunctions", id: "LIST" },
-      ],
-    }),
-
-    // --------------------
-    // Name Discriminators
-    // --------------------
-    getNameDiscriminator: builder.query<GetNameDiscriminatorsResponse, void>({
-      async queryFn() {
-        await sleep(400);
-        return { data: { nameDiscriminators: mockNameDiscriminators } };
-      },
-      providesTags: (result) =>
-        result
-          ? [
-              { type: "NameDiscriminators", id: "LIST" },
-              ...result.nameDiscriminators.map((x) => ({
-                type: "NameDiscriminators" as const,
-                id: x.id,
-              })),
-            ]
-          : [{ type: "NameDiscriminators", id: "LIST" }],
-    }),
-
-    addNameDiscriminator: builder.mutation<NameDiscriminator, { name: string }>(
-      {
-        async queryFn({ name }) {
-          await sleep(400);
-          const created: NameDiscriminator = { id: uid("nd"), name };
-          mockNameDiscriminators = [created, ...mockNameDiscriminators];
-          return { data: created };
-        },
-        invalidatesTags: [{ type: "NameDiscriminators", id: "LIST" }],
-      }
-    ),
-
-    modifyNameDiscriminator: builder.mutation<
-      NameDiscriminator,
-      { id: string; name: string }
-    >({
-      async queryFn({ id, name }) {
-        await sleep(400);
-        const idx = mockNameDiscriminators.findIndex((x) => x.id === id);
-        if (idx === -1) {
-          return {
-            error: { status: 404, data: "NameDiscriminator not found" } as any,
-          };
-        }
-        const updated: NameDiscriminator = {
-          ...mockNameDiscriminators[idx],
-          name,
-        };
-        mockNameDiscriminators = mockNameDiscriminators.map((x) =>
-          x.id === id ? updated : x
-        );
-        return { data: updated };
-      },
-      invalidatesTags: (_res, _err, arg) => [
-        { type: "NameDiscriminators", id: arg.id },
-        { type: "NameDiscriminators", id: "LIST" },
-      ],
-    }),
-
-    deleteNameDiscriminator: builder.mutation<
-      NameDiscriminator,
-      { id: string }
-    >({
-      async queryFn({ id }) {
-        await sleep(400);
-        const existing = mockNameDiscriminators.find((x) => x.id === id);
-        if (!existing) {
-          return {
-            error: { status: 404, data: "NameDiscriminator not found" } as any,
-          };
-        }
-        mockNameDiscriminators = mockNameDiscriminators.filter(
-          (x) => x.id !== id
-        );
-        return { data: existing };
-      },
-      invalidatesTags: (_res, _err, arg) => [
-        { type: "NameDiscriminators", id: arg.id },
-        { type: "NameDiscriminators", id: "LIST" },
+        { type: "PluginParams", id: "LIST" },
+        { type: "PluginParams", id: arg.id },
       ],
     }),
   }),
 });
 
 export const {
-  useGetOmitedFunctionsQuery,
-  useAddOmitedFunctionMutation,
-  useModifyOmitedFunctionMutation,
-  useDeleteOmitedFunctionMutation,
-  useGetNameDiscriminatorQuery,
-  useAddNameDiscriminatorMutation,
-  useModifyNameDiscriminatorMutation,
-  useDeleteNameDiscriminatorMutation,
+  useGetPluginParamsQuery,
+  useCreatePluginParamMutation,
+  useUpdatePluginParamMutation,
+  useDeletePluginParamMutation,
 } = pluginParamsApi;
