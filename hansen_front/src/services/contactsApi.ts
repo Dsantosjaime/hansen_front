@@ -6,32 +6,27 @@ export enum Status {
   INACTIF = "Inactif",
 }
 
-/**
- * IMPORTANT:
- * - Backend Prisma: functions (string), phoneNumber (string)
- * - Ici je garde ton type mais pour les appels API j’utilise functions/phoneNumber string.
- */
 export type Contact = {
   id: string;
   firstName: string;
   lastName: string;
   function: string;
-
   status: Status;
-
   email: string;
   phoneNumber: string[];
   lastContact: string;
   lastEmail: string;
   groupId: string;
   subGroupId: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type CreateContactDto = {
   firstName: string;
   lastName: string;
   function: string;
-  status: string; // "Actif" | "Inactif" (ou autres valeurs si tu en as)
+  status: string;
   email: string;
   phoneNumber: string[];
   lastContact: string;
@@ -42,14 +37,21 @@ export type CreateContactDto = {
 
 export type UpdateContactDto = Partial<CreateContactDto>;
 
+/**
+ * Enlève tout champ "non DTO" si jamais il est présent par erreur.
+ * (utile si tu passes un objet Contact complet au lieu d'un DTO)
+ */
+function sanitizeContactPayload<T extends Record<string, any>>(data: T) {
+  // enlève les champs typiques non attendus par les DTO
+  const { id, createdAt, updatedAt, ...rest } = data;
+  return rest;
+}
+
 export const contactsApi = createApi({
   reducerPath: "contactsApi",
   tagTypes: ["Contacts", "EmailHistory"],
   baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
-    /**
-     * GET /contacts?groupId=&subGroupId=&status=
-     */
     getContacts: builder.query<
       Contact[],
       { groupId?: string; subGroupId?: string; status?: string } | void
@@ -68,10 +70,6 @@ export const contactsApi = createApi({
           : [{ type: "Contacts", id: "LIST" }],
     }),
 
-    /**
-     * Compat: ton ancien endpoint "getContactsByGroup"
-     * => appelle GET /contacts?groupId=...
-     */
     getContactsByGroup: builder.query<Contact[], { groupId: string }>({
       query: ({ groupId }) => ({
         url: "/contacts",
@@ -87,9 +85,6 @@ export const contactsApi = createApi({
           : [{ type: "Contacts", id: "LIST" }],
     }),
 
-    /**
-     * GET /contacts/:id
-     */
     getContactById: builder.query<Contact, { id: string }>({
       query: ({ id }) => ({
         url: `/contacts/${id}`,
@@ -98,21 +93,15 @@ export const contactsApi = createApi({
       providesTags: (_res, _err, arg) => [{ type: "Contacts", id: arg.id }],
     }),
 
-    /**
-     * POST /contacts
-     */
     createContact: builder.mutation<Contact, CreateContactDto>({
       query: (body) => ({
         url: "/contacts",
         method: "POST",
-        body,
+        body: sanitizeContactPayload(body),
       }),
       invalidatesTags: [{ type: "Contacts", id: "LIST" }],
     }),
 
-    /**
-     * PATCH /contacts/:id
-     */
     updateContact: builder.mutation<
       Contact,
       { id: string; data: UpdateContactDto }
@@ -120,7 +109,7 @@ export const contactsApi = createApi({
       query: ({ id, data }) => ({
         url: `/contacts/${id}`,
         method: "PATCH",
-        body: data,
+        body: sanitizeContactPayload(data),
       }),
       invalidatesTags: (_res, _err, arg) => [
         { type: "Contacts", id: "LIST" },
@@ -128,9 +117,6 @@ export const contactsApi = createApi({
       ],
     }),
 
-    /**
-     * DELETE /contacts/:id
-     */
     deleteContact: builder.mutation<Contact, { id: string }>({
       query: ({ id }) => ({
         url: `/contacts/${id}`,
