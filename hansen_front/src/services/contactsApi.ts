@@ -1,10 +1,27 @@
 import { createApi } from "@reduxjs/toolkit/query/react";
 import { baseQueryWithKeycloakRefresh } from "./baseQueryWithKeycloak";
+import { SelectOption } from "@/components/ui/select.types";
 
 export enum Status {
-  ACTIF = "Actif",
-  INACTIF = "Inactif",
+  NO_EXCHANGE = "NO_EXCHANGE",
+  MET = "MET",
+  CLIENT = "CLIENT",
+  UNDESIRABLE = "UNDESIRABLE",
 }
+
+export const CONTACT_STATUS_LABEL: Record<Status, string> = {
+  [Status.NO_EXCHANGE]: "Pas d'échange",
+  [Status.MET]: "Rencontré",
+  [Status.CLIENT]: "Client",
+  [Status.UNDESIRABLE]: "Indésirable",
+};
+
+export const contactStatusOptions: SelectOption<Status>[] = Object.values(
+  Status
+).map((value) => ({
+  value,
+  label: CONTACT_STATUS_LABEL[value],
+}));
 
 export type Contact = {
   id: string;
@@ -26,7 +43,7 @@ export type CreateContactDto = {
   firstName: string;
   lastName: string;
   function: string;
-  status: string;
+  status: Status;
   email: string;
   phoneNumber: string[];
   lastContact: string;

@@ -5,6 +5,8 @@ import type { SelectOption } from "@/components/ui/select.types";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import {
   Contact,
+  CONTACT_STATUS_LABEL,
+  contactStatusOptions,
   Status,
   useGetContactsByGroupQuery,
   useUpdateContactMutation,
@@ -94,13 +96,18 @@ export default function ContactsScreen() {
       {
         accessorKey: "status",
         header: "Statut",
+        cell: ({ getValue }) => {
+          const v = getValue<Status | string>();
+          return CONTACT_STATUS_LABEL[v as Status] ?? String(v);
+        },
         meta: {
           editable: true,
           editor: "select",
-          selectOptions: [
-            { value: Status.ACTIF, label: Status.ACTIF },
-            { value: Status.INACTIF, label: Status.INACTIF },
-          ],
+          selectOptions: contactStatusOptions,
+          updateValue: (row: any, value: any) => ({
+            ...row,
+            status: typeof value === "string" ? value : value?.value, // <- force enum
+          }),
         },
       },
       {
@@ -214,6 +221,8 @@ export default function ContactsScreen() {
               pageSize={10}
               onCellUpdate={async ({ row }) => {
                 const { id, ...data } = row;
+
+                console.log("update", data);
                 await updateContact({ id, data }).unwrap();
               }}
             />

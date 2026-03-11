@@ -2,6 +2,7 @@ import { ContactList, ContactListHandle } from "@/components/grid/ContactList";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import {
   Contact,
+  contactStatusOptions,
   Status,
   useCreateContactMutation,
   useUpdateContactMutation,
@@ -17,7 +18,6 @@ import React, {
 } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Select } from "../ui/Select";
-import { SelectOption } from "../ui/select.types";
 import {
   ToDoType,
   useCreateTodoMutation,
@@ -58,7 +58,7 @@ function makeDraftFromContact(c: Contact): ContactDraft {
     lastName: c.lastName ?? "",
     email: c.email ?? "",
     function: c.function ?? "",
-    status: c.status ?? Status.ACTIF,
+    status: c.status ?? Status.NO_EXCHANGE,
     phoneNumber: c.phoneNumber ?? [],
     groupId: c.groupId,
     subGroupId: c.subGroupId,
@@ -76,7 +76,7 @@ function makeEmptyDraft(
     lastName: "",
     email: "",
     function: "",
-    status: Status.ACTIF,
+    status: Status.NO_EXCHANGE,
     phoneNumber: ["", ""],
     groupId: seletedGroupId ?? "-1",
     subGroupId: selectedSubGroupId ?? "-1",
@@ -250,13 +250,7 @@ export function ContactInfos({
 
   ///// Todo END
 
-  const statusOptions: SelectOption<Status>[] = useMemo(
-    () => [
-      { value: Status.ACTIF, label: Status.ACTIF },
-      { value: Status.INACTIF, label: Status.INACTIF },
-    ],
-    []
-  );
+  const statusOptions = contactStatusOptions;
 
   const toDto = useCallback(() => {
     const phoneNumber = (draft.phoneNumber ?? [])

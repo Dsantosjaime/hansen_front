@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ColumnDef,
   SortingState,
@@ -96,13 +96,25 @@ function EditableCell<TData extends object>(props: {
   const initial = String(props.getValue() ?? "");
   const [val, setVal] = useState(initial);
 
+  // Empêche les commits doublons (ex: onSubmitEditing + onBlur)
+  const skipNextBlurCommitRef = useRef(false);
+
+  // Empêche les commits identiques successifs (Select qui déclenche 2 fois, etc.)
+  const lastCommittedRef = useRef<unknown>(initial);
+
   useEffect(() => {
-    setVal(String(props.getValue() ?? ""));
+    const next = String(props.getValue() ?? "");
+    setVal(next);
+    lastCommittedRef.current = next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial]);
 
   const commit = (nextValue?: unknown) => {
     const valueToSave = nextValue ?? val;
+
+    // Garde-fou: si c'est la même valeur qu'on a déjà commit, on ne fait rien
+    if (valueToSave === lastCommittedRef.current) return;
+    lastCommittedRef.current = valueToSave;
 
     props.table.options.meta?.updateData?.(
       props.rowIndex,
@@ -118,9 +130,14 @@ function EditableCell<TData extends object>(props: {
 
     return (
       <Select
-        value={String(props.getValue() ?? "")}
+        value={val}
         options={options}
-        onChange={(v) => commit(v)}
+        onChange={(v) => {
+          // on garde l'UI sync, puis on commit
+          const next = String(v ?? "");
+          setVal(next);
+          commit(v);
+        }}
         searchable={false}
         showLabel={false}
         density="compact"
@@ -132,8 +149,17 @@ function EditableCell<TData extends object>(props: {
     <TextInput
       value={val}
       onChangeText={setVal}
-      onBlur={() => commit()}
-      onSubmitEditing={() => commit()}
+      onSubmitEditing={() => {
+        skipNextBlurCommitRef.current = true;
+        commit();
+      }}
+      onBlur={() => {
+        if (skipNextBlurCommitRef.current) {
+          skipNextBlurCommitRef.current = false;
+          return; // évite le double commit après submit
+        }
+        commit();
+      }}
       keyboardType={
         props.inputType === "email"
           ? "email-address"
@@ -160,7 +186,7 @@ export function Grid<TData extends object>({
     pageSize,
   });
 
-  // POC: copie locale pour édition optimiste
+  // Copie locale pour édition optimiste
   const [localData, setLocalData] = useState<TData[]>(data);
   useEffect(() => setLocalData(data), [data]);
 
@@ -189,28 +215,24 @@ export function Grid<TData extends object>({
         columnId: string,
         value: unknown
       ) => {
+        // On construit la row mise à jour AVANT de toucher au state,
+        // et c'est celle-ci qu'on envoie au parent.
+        const col = table.getColumn(columnId);
+        const meta = col?.columnDef?.meta as GridColumnMeta<TData> | undefined;
+
+        const updatedRow: TData = meta?.updateValue
+          ? meta.updateValue(rowOriginal, value, columnId)
+          : ({ ...(rowOriginal as any), [columnId]: value } as TData);
+
         setLocalData((old) => {
           const row = old[rowIndex];
           if (!row) return old;
-
           const next = [...old];
-
-          // Support champs dérivés via meta.updateValue (si présent)
-          const col = table.getColumn(columnId);
-          const meta = col?.columnDef?.meta as
-            | GridColumnMeta<TData>
-            | undefined;
-
-          next[rowIndex] = meta?.updateValue
-            ? meta.updateValue(row, value, columnId)
-            : ({ ...(row as any), [columnId]: value } as TData);
-
+          next[rowIndex] = updatedRow;
           return next;
         });
 
-        if (onCellUpdate) {
-          onCellUpdate({ row: rowOriginal, rowIndex, columnId, value });
-        }
+        onCellUpdate?.({ row: updatedRow, rowIndex, columnId, value });
       },
     },
   });
@@ -230,17 +252,14 @@ export function Grid<TData extends object>({
   function formatCellValue(value: unknown): string {
     if (value == null) return "";
 
-    // Si tu as des Date réelles dans tes data
     if (value instanceof Date) {
       return new Intl.DateTimeFormat("fr-FR").format(value);
     }
 
-    // Si tu as des ISO strings
     if (typeof value === "string") {
-      // tentative date ISO
       const d = new Date(value);
       if (!Number.isNaN(d.getTime()) && value.includes("T")) {
-        return new Intl.DateTimeFormat("fr-FR").format(d); // DD/MM/YYYY
+        return new Intl.DateTimeFormat("fr-FR").format(d);
       }
       return value;
     }
@@ -249,14 +268,12 @@ export function Grid<TData extends object>({
       return String(value);
     }
 
-    // fallback
     return "";
   }
 
   return (
     <View style={styles.root}>
       <View style={styles.card}>
-        {/* Header */}
         <View style={styles.header}>
           {headerGroups[0]?.headers.map((header: any) => {
             const canSort = header.column.getCanSort();
@@ -330,10 +347,8 @@ export function Grid<TData extends object>({
                           meta={meta}
                         />
                       ) : React.isValidElement(rendered) ? (
-                        // Si c'est un élément React, on l'affiche tel quel
                         rendered
                       ) : (
-                        // Sinon on formate une valeur primitive
                         <Text style={styles.cellText} numberOfLines={1}>
                           {formatCellValue(cell.getValue())}
                         </Text>
@@ -410,10 +425,7 @@ export function Grid<TData extends object>({
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    minHeight: 0, // important pour que le ScrollView puisse prendre la place restante
-  },
+  root: { flex: 1, minHeight: 0 },
 
   card: {
     flex: 1,
@@ -440,33 +452,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  headerText: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  sortIcon: {
-    fontSize: 12,
-    fontWeight: "900",
-    opacity: 0.9,
-  },
-  sortIconIdle: {
-    opacity: 0.55,
-  },
-  sortSpacer: {
-    width: 14,
-  },
+  headerText: { flex: 1, fontSize: 12, fontWeight: "800" },
+  sortIcon: { fontSize: 12, fontWeight: "900", opacity: 0.9 },
+  sortIconIdle: { opacity: 0.55 },
+  sortSpacer: { width: 14 },
 
-  body: {
-    flex: 1,
-    minHeight: 0,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1, // permet de remplir l’espace même avec peu de lignes
-  },
+  body: { flex: 1, minHeight: 0 },
+  scroll: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
 
   row: {
     flexDirection: "row",
@@ -480,10 +473,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     justifyContent: "center",
   },
-  cellText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
+  cellText: { fontSize: 13, fontWeight: "600" },
 
   input: {
     width: "100%",
@@ -497,9 +487,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
   },
 
-  filler: {
-    flex: 1, // “tire” le body vers le bas si peu de rows
-  },
+  filler: { flex: 1 },
 
   pagination: {
     height: 48,
@@ -517,10 +505,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     justifyContent: "center",
   },
-  pagerBtnText: {
-    fontWeight: "700",
-    fontSize: 13,
-  },
+  pagerBtnText: { fontWeight: "700", fontSize: 13 },
 
   pageNumbers: {
     flexDirection: "row",
@@ -530,11 +515,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
   },
-  dots: {
-    paddingHorizontal: 6,
-    opacity: 0.7,
-    fontWeight: "700",
-  },
+  dots: { paddingHorizontal: 6, opacity: 0.7, fontWeight: "700" },
   pageBtn: {
     height: 32,
     minWidth: 32,
@@ -546,20 +527,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  pageBtnActive: {
-    backgroundColor: "#0F172A",
-    borderColor: "#0F172A",
-  },
-  pageBtnText: {
-    fontWeight: "800",
-    fontSize: 13,
-    color: "#0F172A",
-  },
-  pageBtnTextActive: {
-    color: "white",
-  },
+  pageBtnActive: { backgroundColor: "#0F172A", borderColor: "#0F172A" },
+  pageBtnText: { fontWeight: "800", fontSize: 13, color: "#0F172A" },
+  pageBtnTextActive: { color: "white" },
 
-  btnDim: {
-    opacity: 0.6,
-  },
+  btnDim: { opacity: 0.6 },
 });
