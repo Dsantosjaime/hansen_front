@@ -21,13 +21,18 @@ import * as DocumentPicker from "expo-document-picker";
 
 type Props = {
   onClose: () => void;
-
-  // Optionnel: si tu veux que le parent soit notifié après un envoi
   handleSend?: (payload: {
     templateId: number;
     groups: GroupsAndSubGroupSelected;
     campaignId: number;
   }) => void | Promise<void>;
+};
+
+type UploadedAttachment = {
+  attachmentUrl: string;
+  filename: string;
+  size: number;
+  mimeType: string;
 };
 
 export function NewEmail({ onClose, handleSend }: Props) {
@@ -38,7 +43,6 @@ export function NewEmail({ onClose, handleSend }: Props) {
   const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
   const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
 
-  // Attachments
   const MAX_ATTACHMENT_SIZE = 4 * 1024 * 1024;
 
   const [attachmentAsset, setAttachmentAsset] =
@@ -47,15 +51,17 @@ export function NewEmail({ onClose, handleSend }: Props) {
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   const onPickAttachment = useCallback(async () => {
-    const asset = await pickAttachment();
+    const asset = await pickAttachmentWeb();
     if (!asset) return;
 
     // Vérif taille (quand dispo)
     if (typeof asset.size === "number" && asset.size > MAX_ATTACHMENT_SIZE) {
-      // Remplace par ton système de toast/alert
       console.warn("Fichier trop volumineux (max 4 Mo)");
       return;
     }
+
+    // DEBUG utile une fois:
+    // console.log("Picked asset:", asset);
 
     setAttachmentAsset(asset);
   }, [MAX_ATTACHMENT_SIZE]);
@@ -64,10 +70,8 @@ export function NewEmail({ onClose, handleSend }: Props) {
     setAttachmentAsset(null);
   }, []);
 
-  // Groups
   const { data: groups = [], isFetching } = useGetGroupsQuery();
 
-  // Brevo templates
   const {
     data: templates = [],
     isFetching: templatesFetching,
@@ -90,7 +94,6 @@ export function NewEmail({ onClose, handleSend }: Props) {
 
   const [templateId, setTemplateId] = useState<number | null>(null);
 
-  // Group selection
   const ALL = "__ALL__";
   const [filterGroupId, setFilterGroupId] = useState<string>(ALL);
 
@@ -114,7 +117,6 @@ export function NewEmail({ onClose, handleSend }: Props) {
     const groupIds: string[] = [];
     const subGroupIds: string[] = [];
 
-    // Mapping tolérant tant que GroupsAndSubGroupSelected n'est pas strictement connu ici
     for (const g of sel as any[]) {
       const gid = String(g?.id ?? "");
       if (gid) groupIds.push(gid);
@@ -140,14 +142,14 @@ export function NewEmail({ onClose, handleSend }: Props) {
     try {
       if (attachmentAsset) {
         setUploadingAttachment(true);
-        const uploaded = await uploadAttachment(attachmentAsset);
+        const uploaded = await uploadAttachmentWeb(attachmentAsset);
         attachmentUrl = uploaded.attachmentUrl;
       }
 
       const result = await sendCampaign({
         templateId,
         subGroupIds: subGroupIds.length ? subGroupIds : undefined,
-        attachmentUrl: attachmentUrl ?? "",
+        ...(attachmentUrl ? { attachmentUrl } : {}),
       }).unwrap();
 
       await handleSend?.({
@@ -178,7 +180,6 @@ export function NewEmail({ onClose, handleSend }: Props) {
         { backgroundColor: background, borderColor: border },
       ]}
     >
-      {/* Header */}
       <View style={[styles.topRow, { backgroundColor: backgroundSecond }]}>
         <View style={styles.headerLeft}>
           <View style={styles.templateSelectWrap}>
@@ -266,7 +267,6 @@ export function NewEmail({ onClose, handleSend }: Props) {
         </View>
       </View>
 
-      {/* Content */}
       <View style={styles.content}>
         <View style={styles.filterRow}>
           <View style={{ flex: 1 }}>
@@ -316,41 +316,44 @@ export function NewEmail({ onClose, handleSend }: Props) {
   );
 }
 
-type UploadedAttachment = {
-  attachmentUrl: string;
-  filename: string;
-  size: number;
-  mimeType: string;
-};
-
-async function pickAttachment(): Promise<DocumentPicker.DocumentPickerAsset | null> {
+async function pickAttachmentWeb(): Promise<DocumentPicker.DocumentPickerAsset | null> {
+  // Sur WEB, on évite le cache et on veut un vrai File dans asset.file
   const res = await DocumentPicker.getDocumentAsync({
     multiple: false,
-    copyToCacheDirectory: true,
+    copyToCacheDirectory: false,
   });
 
   if (res.canceled) return null;
-  return res.assets[0];
+  const asset = res.assets[0];
+
+  // On force le contrat: en web on doit avoir asset.file (un vrai File)
+  const file = (asset as any).file as File | undefined;
+  if (!file) {
+    throw new Error(
+      "DocumentPicker web: asset.file is missing. Cannot upload as multipart."
+    );
+  }
+
+  return asset;
 }
 
-async function uploadAttachment(
+async function uploadAttachmentWeb(
   asset: DocumentPicker.DocumentPickerAsset
 ): Promise<UploadedAttachment> {
+  const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL;
+  if (!apiBase) throw new Error("EXPO_PUBLIC_API_BASE_URL is not set");
+
+  const file = (asset as any).file as File | undefined;
+  if (!file) throw new Error("Missing asset.file (web) — cannot upload.");
+
   const form = new FormData();
+  form.append("file", file, file.name);
 
-  form.append("file", {
-    uri: asset.uri,
-    name: asset.name ?? "attachment",
-    type: asset.mimeType ?? "application/octet-stream",
-  } as any);
-
-  const r = await fetch(
-    `${process.env.EXPO_PUBLIC_API_BASE_URL}/campaign-attachments/upload`,
-    {
-      method: "POST",
-      body: form,
-    }
-  );
+  const r = await fetch(`${apiBase}/campaign-attachments/upload`, {
+    method: "POST",
+    body: form,
+    // IMPORTANT: ne pas définir Content-Type, le navigateur ajoute le boundary
+  });
 
   if (!r.ok) throw new Error(await r.text());
   return await r.json();
