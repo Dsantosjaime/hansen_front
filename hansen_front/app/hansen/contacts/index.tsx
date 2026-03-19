@@ -12,6 +12,7 @@ import {
   useUpdateContactMutation,
 } from "@/services/contactsApi";
 import { useGetGroupsQuery } from "@/services/groupsApi";
+import { useGetMeQuery } from "@/services/usersApi";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -27,6 +28,17 @@ export default function ContactsScreen() {
 
   const { data: groups = [], isLoading: groupsLoading } = useGetGroupsQuery();
   const [updateContact] = useUpdateContactMutation();
+
+  const { data: currentUser, isLoading: currentUserLoading } = useGetMeQuery();
+
+  // Tant que currentUser n'est pas load => copy interdit
+  const clipboardEnabled = useMemo(() => {
+    if (currentUserLoading) return false;
+    const perms = currentUser?.role?.permissions ?? [];
+    return perms.some(
+      (p: any) => p?.subject === "Contact" && p?.action === "copy"
+    );
+  }, [currentUserLoading, currentUser]);
 
   const [groupId, setGroupId] = useState<string | null>(null);
   const [subGroupId, setSubGroupId] = useState<string | null>(null);
@@ -106,7 +118,7 @@ export default function ContactsScreen() {
           selectOptions: contactStatusOptions,
           updateValue: (row: any, value: any) => ({
             ...row,
-            status: typeof value === "string" ? value : value?.value, // <- force enum
+            status: typeof value === "string" ? value : value?.value,
           }),
         },
       },
@@ -219,10 +231,9 @@ export default function ContactsScreen() {
               data={filteredContacts}
               columns={columns}
               pageSize={10}
+              clipboardEnabled={clipboardEnabled}
               onCellUpdate={async ({ row }) => {
                 const { id, ...data } = row;
-
-                console.log("update", data);
                 await updateContact({ id, data }).unwrap();
               }}
             />

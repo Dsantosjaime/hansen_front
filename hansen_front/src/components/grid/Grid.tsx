@@ -49,6 +49,13 @@ type DataGridProps<TData extends object> = {
   initialPageIndex?: number;
   getRowId?: (row: TData, index: number) => string;
   onCellUpdate?: (payload: CellUpdatePayload<TData>) => void;
+
+  /**
+   * Web only (best-effort):
+   * - false => bloque clic droit + copy/cut/paste + raccourcis Ctrl/Cmd+C/V/X
+   * - true => normal
+   */
+  clipboardEnabled?: boolean;
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -92,6 +99,7 @@ function EditableCell<TData extends object>(props: {
   table: any;
   inputType?: "text" | "email" | "tel";
   meta?: GridColumnMeta<TData>;
+  clipboardEnabled: boolean;
 }) {
   const initial = String(props.getValue() ?? "");
   const [val, setVal] = useState(initial);
@@ -112,7 +120,6 @@ function EditableCell<TData extends object>(props: {
   const commit = (nextValue?: unknown) => {
     const valueToSave = nextValue ?? val;
 
-    // Garde-fou: si c'est la même valeur qu'on a déjà commit, on ne fait rien
     if (valueToSave === lastCommittedRef.current) return;
     lastCommittedRef.current = valueToSave;
 
@@ -124,26 +131,53 @@ function EditableCell<TData extends object>(props: {
     );
   };
 
+  const preventIfNoClipboard = (e: any) => {
+    if (props.clipboardEnabled) return;
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+  };
+
+  const preventClipboardShortcuts = (e: any) => {
+    if (props.clipboardEnabled) return;
+    const key = String(e?.key ?? "").toLowerCase();
+    const ctrl = Boolean(e?.ctrlKey);
+    const meta = Boolean(e?.metaKey);
+    if ((ctrl || meta) && (key === "c" || key === "v" || key === "x")) {
+      preventIfNoClipboard(e);
+    }
+  };
+
   // ----- Editor "select" -----
   if (props.meta?.editor === "select" && props.meta.selectOptions) {
     const options = props.meta.selectOptions as SelectOption<string>[];
 
     return (
-      <Select
-        value={val}
-        options={options}
-        onChange={(v) => {
-          // on garde l'UI sync, puis on commit
-          const next = String(v ?? "");
-          setVal(next);
-          commit(v);
-        }}
-        searchable={false}
-        showLabel={false}
-        density="compact"
-      />
+      <View style={!props.clipboardEnabled ? styles.noSelect : undefined}>
+        <Select
+          value={val}
+          options={options}
+          onChange={(v) => {
+            const next = String(v ?? "");
+            setVal(next);
+            commit(v);
+          }}
+          searchable={false}
+          showLabel={false}
+          density="compact"
+        />
+      </View>
     );
   }
+
+  const webBlockInputProps: any = props.clipboardEnabled
+    ? {}
+    : {
+        onCopy: preventIfNoClipboard,
+        onCut: preventIfNoClipboard,
+        onPaste: preventIfNoClipboard,
+        onContextMenu: preventIfNoClipboard,
+        onKeyDown: preventClipboardShortcuts,
+      };
 
   return (
     <TextInput
@@ -156,7 +190,7 @@ function EditableCell<TData extends object>(props: {
       onBlur={() => {
         if (skipNextBlurCommitRef.current) {
           skipNextBlurCommitRef.current = false;
-          return; // évite le double commit après submit
+          return;
         }
         commit();
       }}
@@ -167,7 +201,9 @@ function EditableCell<TData extends object>(props: {
           ? "phone-pad"
           : "default"
       }
-      style={styles.input}
+      style={[styles.input, !props.clipboardEnabled ? styles.noSelect : null]}
+      selectTextOnFocus={false}
+      {...webBlockInputProps}
     />
   );
 }
@@ -179,6 +215,7 @@ export function Grid<TData extends object>({
   initialPageIndex = 0,
   getRowId,
   onCellUpdate,
+  clipboardEnabled = true,
 }: DataGridProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [pagination, setPagination] = useState({
@@ -215,8 +252,6 @@ export function Grid<TData extends object>({
         columnId: string,
         value: unknown
       ) => {
-        // On construit la row mise à jour AVANT de toucher au state,
-        // et c'est celle-ci qu'on envoie au parent.
         const col = table.getColumn(columnId);
         const meta = col?.columnDef?.meta as GridColumnMeta<TData> | undefined;
 
@@ -271,8 +306,37 @@ export function Grid<TData extends object>({
     return "";
   }
 
+  const preventIfNoClipboard = (e: any) => {
+    if (clipboardEnabled) return;
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+  };
+
+  const preventClipboardShortcuts = (e: any) => {
+    if (clipboardEnabled) return;
+    const key = String(e?.key ?? "").toLowerCase();
+    const ctrl = Boolean(e?.ctrlKey);
+    const meta = Boolean(e?.metaKey);
+    if ((ctrl || meta) && (key === "c" || key === "v" || key === "x")) {
+      preventIfNoClipboard(e);
+    }
+  };
+
+  const webBlockContainerProps: any = clipboardEnabled
+    ? {}
+    : {
+        onContextMenu: preventIfNoClipboard,
+        onCopy: preventIfNoClipboard,
+        onCut: preventIfNoClipboard,
+        onPaste: preventIfNoClipboard,
+        onKeyDown: preventClipboardShortcuts,
+      };
+
   return (
-    <View style={styles.root}>
+    <View
+      style={[styles.root, !clipboardEnabled ? styles.noSelect : null]}
+      {...webBlockContainerProps}
+    >
       <View style={styles.card}>
         <View style={styles.header}>
           {headerGroups[0]?.headers.map((header: any) => {
@@ -345,11 +409,16 @@ export function Grid<TData extends object>({
                           table={table}
                           inputType={meta?.inputType}
                           meta={meta}
+                          clipboardEnabled={clipboardEnabled}
                         />
                       ) : React.isValidElement(rendered) ? (
                         rendered
                       ) : (
-                        <Text style={styles.cellText} numberOfLines={1}>
+                        <Text
+                          style={styles.cellText}
+                          numberOfLines={1}
+                          selectable={false}
+                        >
                           {formatCellValue(cell.getValue())}
                         </Text>
                       )}
@@ -486,6 +555,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     backgroundColor: "white",
   },
+
+  // Web: empêche la sélection de texte (best-effort)
+  noSelect: {
+    userSelect: "none",
+    WebkitUserSelect: "none",
+  } as any,
 
   filler: { flex: 1 },
 

@@ -6,7 +6,7 @@ export type CreateUserInput = {
   email: string;
   name: string;
   roleId: string;
-  temporaryPassword: string; // requis par ton createUserWithRole côté back
+  temporaryPassword: string;
 };
 
 export type ModifyUserInput = {
@@ -19,9 +19,16 @@ export type ModifyUserInput = {
 
 export const usersApi = createApi({
   reducerPath: "usersApi",
-  tagTypes: ["Users"],
+  tagTypes: ["Users", "Me"],
   baseQuery: baseQueryWithKeycloakRefresh,
   endpoints: (builder) => ({
+    getMe: builder.query<User, void>({
+      query: () => ({
+        url: "/users/me",
+        method: "GET",
+      }),
+      providesTags: [{ type: "Me", id: "CURRENT" }],
+    }),
     getUsers: builder.query<User[], void>({
       query: () => ({
         url: "/users",
@@ -56,6 +63,7 @@ export const usersApi = createApi({
       invalidatesTags: (_res, _err, arg) => [
         { type: "Users", id: arg.id },
         { type: "Users", id: "LIST" },
+        { type: "Me", id: "CURRENT" }, // au cas où l'user courant est modifié
       ],
     }),
 
@@ -68,12 +76,14 @@ export const usersApi = createApi({
       invalidatesTags: (_res, _err, arg) => [
         { type: "Users", id: arg.id },
         { type: "Users", id: "LIST" },
+        { type: "Me", id: "CURRENT" }, // idem
       ],
     }),
   }),
 });
 
 export const {
+  useGetMeQuery,
   useGetUsersQuery,
   useCreateUserMutation,
   useModifyUserMutation,
