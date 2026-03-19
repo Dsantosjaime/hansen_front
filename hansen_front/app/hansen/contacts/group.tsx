@@ -43,9 +43,9 @@ export default function GroupScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
   const backgroundDark = useThemeColor({}, "backgroundDark");
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
-  const text = useThemeColor({ light: "#0F172A", dark: "#F9FAFB" }, "text");
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
-  const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
+  const text = useThemeColor({ dark: "#F9FAFB" }, "text");
+  const border = useThemeColor({ dark: "#1F2937" }, "text");
+  const muted = useThemeColor({ dark: "#9CA3AF" }, "text");
 
   const [groupId, setGroupId] = useState<string | null>(null);
   const [createMode, setCreateMode] = useState(false);

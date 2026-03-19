@@ -16,7 +16,7 @@ export const AppHeader = memo(function AppHeader(
 
   const background = useThemeColor({}, "background");
   const text = useThemeColor({}, "text");
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
+  const border = useThemeColor({ dark: "#1F2937" }, "text");
 
   const dispatch = useAppDispatch();
   const userName = useAppSelector((s) => s.auth.user?.username);

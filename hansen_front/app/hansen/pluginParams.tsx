@@ -25,10 +25,10 @@ export default function PluginParamsScreen() {
   const background = useThemeColor({}, "backgroundDark");
   const backgroundLight = useThemeColor({}, "backgroundLight");
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
-  const text = useThemeColor({ light: "#0F172A", dark: "#F9FAFB" }, "text");
+  const text = useThemeColor({ dark: "#F9FAFB" }, "text");
   const textDark = useThemeColor({}, "textDark");
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
-  const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
+  const border = useThemeColor({ dark: "#1F2937" }, "text");
+  const muted = useThemeColor({ dark: "#9CA3AF" }, "text");
 
   const {
     data: pluginParams,

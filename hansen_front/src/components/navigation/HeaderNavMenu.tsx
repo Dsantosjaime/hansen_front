@@ -10,13 +10,10 @@ type NavCategory =
 
 export const HeaderNavMenu = memo(function HeaderNavMenu() {
   const headerBg = useThemeColor(
-    { light: "#1F536E", dark: "#1F536E" }, // [PLACEHOLDER]
+    { dark: "#1F536E" }, // [PLACEHOLDER]
     "background"
   );
-  const headerText = useThemeColor(
-    { light: "#FFFFFF", dark: "#FFFFFF" },
-    "text"
-  );
+  const headerText = useThemeColor({ dark: "#FFFFFF" }, "text");
 
   const nav = useMemo<NavCategory[]>(
     () => [

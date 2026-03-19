@@ -39,7 +39,7 @@ export function SelectGroupsSubGroups({
   onChange,
 }: SelectGroupsSubGroupsProps) {
   const accent = useThemeColor({}, "backgroundSecond");
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
+  const border = useThemeColor({ dark: "#1F2937" }, "text");
 
   const displayedGroups = useMemo(() => {
     if (filterGroupId == null) return groups;

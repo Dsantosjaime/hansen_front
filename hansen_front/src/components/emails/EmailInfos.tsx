@@ -38,8 +38,8 @@ export function EmailInfos({ emailId, onClose }: Props) {
   const background = useThemeColor({}, "backgroundDark");
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
   const text = useThemeColor({}, "text");
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
-  const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
+  const border = useThemeColor({ dark: "#1F2937" }, "text");
+  const muted = useThemeColor({ dark: "#9CA3AF" }, "text");
 
   const { data: email, isLoading } = useGetEmailInfoQuery({ id: emailId });
 

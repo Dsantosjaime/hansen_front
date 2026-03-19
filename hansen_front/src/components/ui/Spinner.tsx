@@ -8,7 +8,7 @@ type Props = {
 };
 
 export function Spinner({ size = "large", fullHeight = false }: Props) {
-  const color = useThemeColor({ light: "#1F536E", dark: "#FFFFFF" }, "text");
+  const color = useThemeColor({ dark: "#FFFFFF" }, "text");
 
   return (
     <View style={[styles.root, fullHeight && styles.fullHeight]}>

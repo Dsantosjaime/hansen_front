@@ -30,7 +30,7 @@ function TreeListInner<T>({
   wrapLeafChildren = true,
 }: TreeListProps<T>) {
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
-  const text = useThemeColor({ light: "#0F172A", dark: "#F9FAFB" }, "text");
+  const text = useThemeColor({ dark: "#F9FAFB" }, "text");
 
   const isLeafNode = (n: TreeNode<T>) =>
     isLeaf ? isLeaf(n) : !n.children || n.children.length === 0;

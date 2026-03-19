@@ -34,7 +34,7 @@ export default function UsersScreen() {
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
   const text = useThemeColor({}, "text");
   const textDark = useThemeColor({}, "textDark");
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
+  const border = useThemeColor({ dark: "#1F2937" }, "text");
 
   const { data: users = [] } = useGetUsersQuery();
   const { data: userRoles = [] } = useGetRolesQuery();

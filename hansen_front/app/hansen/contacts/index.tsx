@@ -24,7 +24,7 @@ type PanelState =
 
 export default function ContactsScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
+  const border = useThemeColor({ dark: "#1F2937" }, "text");
 
   const { data: groups = [], isLoading: groupsLoading } = useGetGroupsQuery();
   const [updateContact] = useUpdateContactMutation();

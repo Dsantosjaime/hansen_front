@@ -103,8 +103,8 @@ export const ContactList = forwardRef<ContactListHandle, Props>(
     }: Props,
     ref
   ) => {
-    const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
-    const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
+    const border = useThemeColor({ dark: "#1F2937" }, "text");
+    const muted = useThemeColor({ dark: "#9CA3AF" }, "text");
 
     const showCheck = !!onCheckRow;
     const canAdd = !!onAddLine;

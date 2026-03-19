@@ -40,8 +40,8 @@ export function NewEmail({ onClose, handleSend }: Props) {
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
   const text = useThemeColor({}, "text");
   const textDark = useThemeColor({}, "textDark");
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
-  const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
+  const border = useThemeColor({ dark: "#1F2937" }, "text");
+  const muted = useThemeColor({ dark: "#9CA3AF" }, "text");
 
   const MAX_ATTACHMENT_SIZE = 4 * 1024 * 1024;
 

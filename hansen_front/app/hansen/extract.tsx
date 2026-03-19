@@ -20,8 +20,8 @@ export default function ExtractScreen() {
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
   const text = useThemeColor({}, "text");
   const textDark = useThemeColor({}, "textDark");
-  const border = useThemeColor({ light: "#E5E7EB", dark: "#1F2937" }, "text");
-  const muted = useThemeColor({ light: "#64748B", dark: "#9CA3AF" }, "text");
+  const border = useThemeColor({ dark: "#1F2937" }, "text");
+  const muted = useThemeColor({ dark: "#9CA3AF" }, "text");
 
   const { data: groups = [], isFetching } = useGetGroupsQuery();
 
