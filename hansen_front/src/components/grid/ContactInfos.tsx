@@ -49,6 +49,9 @@ type Props = {
   subGroupIdSelected?: string | null;
   onClose: () => void;
   onSaved?: (contact: Contact) => void;
+
+  // Option B: le parent gère la suppression
+  onRequestDelete?: (contact: Contact) => void;
 };
 
 function makeDraftFromContact(c: Contact): ContactDraft {
@@ -92,6 +95,7 @@ export function ContactInfos({
   subGroupIdSelected,
   onClose,
   onSaved,
+  onRequestDelete,
 }: Props) {
   const background = useThemeColor({}, "backgroundDark");
   const text = useThemeColor({ dark: "#F9FAFB" }, "text");
@@ -139,10 +143,6 @@ export function ContactInfos({
   const { data: emails = [], isLoading: listEmailIsLoading } =
     useGetContactEmailsQuery(queryArg);
 
-  /**
-   * FIX typage ContactEmail[] -> ListRow[]
-   * ContactList attend sentAt: string (obligatoire), on force une string.
-   */
   const emailRows = useMemo(() => {
     return emails.map((e) => ({
       id: e.id,
@@ -220,10 +220,6 @@ export function ContactInfos({
     [createTodo, effectiveContact?.id]
   );
 
-  /**
-   * Factorisation: on centralise la MAJ du done ici,
-   * au lieu de dupliquer updateTodo dans chaque ContactList.
-   */
   const setTodoDone = useCallback(
     async (todoId: string, done: boolean) => {
       const contactId = effectiveContact?.id;
@@ -238,7 +234,6 @@ export function ContactInfos({
     [effectiveContact?.id, updateTodo]
   );
 
-  // Optionnel: toggle basé sur setTodoDone
   const toggleTodoDone = useCallback(
     async (todoId: string) => {
       const todo = todosById.get(todoId);
@@ -248,9 +243,7 @@ export function ContactInfos({
     [setTodoDone, todosById]
   );
 
-  ///// Todo END
-
-  const statusOptions = contactStatusOptions;
+  // Todo END
 
   const toDto = useCallback(() => {
     const phoneNumber = (draft.phoneNumber ?? [])
@@ -271,7 +264,7 @@ export function ContactInfos({
     };
   }, [draft]);
 
-  // ✅ Create: bouton save activé seulement si prénom/nom/email remplis
+  // Create: bouton save activé seulement si prénom/nom/email remplis
   const canSaveCreate = useMemo(() => {
     if (effectiveMode !== "create") return false;
     return (
@@ -281,10 +274,9 @@ export function ContactInfos({
     );
   }, [draft.email, draft.firstName, draft.lastName, effectiveMode]);
 
-  // Anti-spam: mémorise la dernière payload sauvegardée en EDIT
   const lastSavedKeyRef = useRef<string>("");
 
-  // ✅ Auto-save en EDIT (debounced)
+  // Auto-save en EDIT (debounced)
   useEffect(() => {
     if (effectiveMode !== "edit") return;
     const id = effectiveContact?.id;
@@ -328,12 +320,10 @@ export function ContactInfos({
       const payload = toDto();
       const created = await createContact(payload).unwrap();
 
-      // passe en edit
       setEffectiveMode("edit");
       setEffectiveContact(created);
       setDraft(makeDraftFromContact(created));
 
-      // évite un auto-save immédiat juste après create
       lastSavedKeyRef.current = JSON.stringify(payload);
 
       onSaved?.(created);
@@ -351,6 +341,12 @@ export function ContactInfos({
   ]);
 
   const saveDisabled = effectiveMode === "create" && (saving || !canSaveCreate);
+
+  const requestDelete = useCallback(() => {
+    if (effectiveMode !== "edit") return;
+    if (!effectiveContact) return;
+    onRequestDelete?.(effectiveContact);
+  }, [effectiveContact, effectiveMode, onRequestDelete]);
 
   return (
     <View
@@ -404,6 +400,24 @@ export function ContactInfos({
                 size={26}
                 color={saveDisabled ? "#94A3B8" : "#FFFFFF"}
               />
+            </Pressable>
+          ) : null}
+
+          {effectiveMode === "edit" ? (
+            <Pressable
+              onPress={requestDelete}
+              hitSlop={10}
+              style={({ pressed }) => [
+                styles.iconBtn,
+                {
+                  backgroundColor: "rgba(255,255,255,0.16)",
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Supprimer"
+            >
+              <Ionicons name="trash-outline" size={24} color="#FFFFFF" />
             </Pressable>
           ) : null}
 
@@ -480,7 +494,7 @@ export function ContactInfos({
             <Select<Status>
               label="Status"
               value={draft.status ?? null}
-              options={statusOptions}
+              options={contactStatusOptions}
               onChange={(v) => setDraft((d) => ({ ...d, status: v }))}
               searchable={false}
               showLabel={true}

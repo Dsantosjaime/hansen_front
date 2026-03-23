@@ -8,19 +8,47 @@ import {
   CONTACT_STATUS_LABEL,
   contactStatusOptions,
   Status,
+  useDeleteContactMutation,
   useGetContactsByGroupQuery,
   useUpdateContactMutation,
 } from "@/services/contactsApi";
 import { useGetGroupsQuery } from "@/services/groupsApi";
 import { useGetMeQuery } from "@/services/usersApi";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 type PanelState =
   | { type: "create" }
   | { type: "edit"; contactId: string }
   | null;
+
+function confirmDelete(params: {
+  title: string;
+  message: string;
+}): Promise<boolean> {
+  // ✅ Web: Alert.alert n’affiche souvent rien => fallback confirm()
+  if (Platform.OS === "web") {
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(`${params.title}\n\n${params.message}`);
+    return Promise.resolve(ok);
+  }
+
+  // ✅ iOS/Android: Alert natif
+  return new Promise((resolve) => {
+    Alert.alert(params.title, params.message, [
+      { text: "Annuler", style: "cancel", onPress: () => resolve(false) },
+      { text: "Supprimer", style: "destructive", onPress: () => resolve(true) },
+    ]);
+  });
+}
 
 export default function ContactsScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
@@ -28,6 +56,9 @@ export default function ContactsScreen() {
 
   const { data: groups = [], isLoading: groupsLoading } = useGetGroupsQuery();
   const [updateContact] = useUpdateContactMutation();
+
+  // DELETE centralisé (Option B)
+  const [deleteContact, { isLoading: isDeleting }] = useDeleteContactMutation();
 
   const { data: currentUser, isLoading: currentUserLoading } = useGetMeQuery();
 
@@ -80,7 +111,7 @@ export default function ContactsScreen() {
     return contacts.filter((c) => c.subGroupId === subGroupId);
   }, [contacts, subGroupId]);
 
-  const formatDateFR = (value: unknown) => {
+  const formatDateFR = useCallback((value: unknown) => {
     if (!value) return "";
     const d = value instanceof Date ? value : new Date(String(value));
     if (Number.isNaN(d.getTime())) return "";
@@ -89,11 +120,42 @@ export default function ContactsScreen() {
       month: "2-digit",
       year: "numeric",
     }).format(d);
-  };
+  }, []);
 
-  const openContactInfos = (contact: Contact) => {
+  const openContactInfos = useCallback((contact: Contact) => {
     setPanel({ type: "edit", contactId: contact.id });
-  };
+  }, []);
+
+  // Option B: suppression centralisée + confirmation web/mobile
+  const onRequestDelete = useCallback(
+    async (contact: Contact) => {
+      if (isDeleting) return;
+
+      // Debug si besoin:
+      // console.log("delete pressed", contact.id);
+
+      const ok = await confirmDelete({
+        title: "Supprimer le contact",
+        message: `${contact.firstName} ${contact.lastName}\n\nCette action est définitive. Continuer ?`,
+      });
+
+      if (!ok) return;
+
+      try {
+        await deleteContact({ id: contact.id }).unwrap();
+
+        // si la fiche ouverte correspond au contact supprimé => fermer
+        setPanel((prev) => {
+          if (prev?.type === "edit" && prev.contactId === contact.id)
+            return null;
+          return prev;
+        });
+      } catch {
+        // Optionnel: toast / message d'erreur
+      }
+    },
+    [deleteContact, isDeleting]
+  );
 
   const columns = useMemo<GridColumnDef<Contact>[]>(
     () => [
@@ -149,29 +211,48 @@ export default function ContactsScreen() {
         id: "actions",
         header: "",
         enableSorting: false,
-        meta: { width: 56 },
+        meta: { width: 92 },
         cell: ({ row }) => (
-          <Pressable
-            onPress={() => openContactInfos(row.original)}
-            hitSlop={10}
-            style={({ pressed }) => ({
-              width: 32,
-              height: 32,
-              borderRadius: 10,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-              marginLeft: "auto",
-            })}
-            accessibilityRole="button"
-            accessibilityLabel="Ouvrir la fiche contact"
-          >
-            <Ionicons name="open-outline" size={18} color="#1F536E" />
-          </Pressable>
+          <View style={styles.rowActions}>
+            <Pressable
+              onPress={() => onRequestDelete(row.original)}
+              disabled={isDeleting}
+              hitSlop={10}
+              style={({ pressed }) => ({
+                width: 32,
+                height: 32,
+                borderRadius: 10,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: isDeleting ? 0.4 : pressed ? 0.7 : 1,
+              })}
+              accessibilityRole="button"
+              accessibilityLabel="Supprimer le contact"
+            >
+              <Ionicons name="trash-outline" size={18} color="#B91C1C" />
+            </Pressable>
+
+            <Pressable
+              onPress={() => openContactInfos(row.original)}
+              hitSlop={10}
+              style={({ pressed }) => ({
+                width: 32,
+                height: 32,
+                borderRadius: 10,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.7 : 1,
+              })}
+              accessibilityRole="button"
+              accessibilityLabel="Ouvrir la fiche contact"
+            >
+              <Ionicons name="open-outline" size={18} color="#1F536E" />
+            </Pressable>
+          </View>
         ),
       },
     ],
-    []
+    [formatDateFR, isDeleting, onRequestDelete, openContactInfos]
   );
 
   const selectedContact =
@@ -246,6 +327,7 @@ export default function ContactsScreen() {
               groupIdSelected={groupId}
               subGroupIdSelected={subGroupId}
               onClose={() => setPanel(null)}
+              onRequestDelete={onRequestDelete}
             />
           </View>
         </View>
@@ -288,5 +370,11 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "800",
     fontSize: 13,
+  },
+  rowActions: {
+    marginLeft: "auto",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
 });
