@@ -60,9 +60,6 @@ export function NewEmail({ onClose, handleSend }: Props) {
       return;
     }
 
-    // DEBUG utile une fois:
-    // console.log("Picked asset:", asset);
-
     setAttachmentAsset(asset);
   }, [MAX_ATTACHMENT_SIZE]);
 

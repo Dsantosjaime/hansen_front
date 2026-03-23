@@ -7,6 +7,7 @@ export enum Status {
   MET = "MET",
   CLIENT = "CLIENT",
   UNDESIRABLE = "UNDESIRABLE",
+  TO_VERIFY = "TO_VERIFY",
 }
 
 export const CONTACT_STATUS_LABEL: Record<Status, string> = {
@@ -14,6 +15,7 @@ export const CONTACT_STATUS_LABEL: Record<Status, string> = {
   [Status.MET]: "Rencontré",
   [Status.CLIENT]: "Client",
   [Status.UNDESIRABLE]: "Indésirable",
+  [Status.TO_VERIFY]: "A vérifier",
 };
 
 export const contactStatusOptions: SelectOption<Status>[] = Object.values(
