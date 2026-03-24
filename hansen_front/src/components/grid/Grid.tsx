@@ -227,6 +227,19 @@ export function Grid<TData extends object>({
   const [localData, setLocalData] = useState<TData[]>(data);
   useEffect(() => setLocalData(data), [data]);
 
+  // ✅ IMPORTANT: si data shrink (delete), on garde la page courante,
+  // mais on "clamp" si on est sur une page qui n’existe plus.
+  useEffect(() => {
+    const nextPageCount = Math.max(1, Math.ceil(localData.length / pageSize));
+    const maxPageIndex = nextPageCount - 1;
+
+    setPagination((prev) => {
+      const nextIndex = Math.min(prev.pageIndex, maxPageIndex);
+      if (nextIndex === prev.pageIndex) return prev;
+      return { ...prev, pageIndex: nextIndex };
+    });
+  }, [localData.length, pageSize]);
+
   const resolvedColumns = useMemo<GridColumnDef<TData>[]>(() => {
     return columns.map((c) => ({
       sortingFn: "alphanumeric",
@@ -238,13 +251,26 @@ export function Grid<TData extends object>({
     data: localData,
     columns: resolvedColumns,
     sortingFns: { alphanumeric: sortingFns.alphanumeric },
+
     state: { sorting, pagination },
-    onSortingChange: setSorting,
+
+    // ✅ optionnel: reset à la page 1 quand on change le tri (UX classique)
+    onSortingChange: (updater) => {
+      setSorting(updater as any);
+      setPagination((p) => ({ ...p, pageIndex: 0 }));
+    },
+
     onPaginationChange: setPagination,
+
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getRowId: getRowId as any,
+
+    // ✅ LA correction principale : empêche TanStack de reset pageIndex à 0 quand data change
+    autoResetPageIndex: false,
+    autoResetAll: false,
+
     meta: {
       updateData: (
         rowIndex: number,
