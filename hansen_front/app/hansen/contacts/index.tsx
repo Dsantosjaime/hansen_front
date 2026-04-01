@@ -8,6 +8,7 @@ import {
   CONTACT_STATUS_LABEL,
   contactStatusOptions,
   Status,
+  useBulkDeleteContactsMutation,
   useDeleteContactMutation,
   useGetContactsByGroupQuery,
   useUpdateContactMutation,
@@ -34,14 +35,12 @@ function confirmDelete(params: {
   title: string;
   message: string;
 }): Promise<boolean> {
-  // ✅ Web: Alert.alert n’affiche souvent rien => fallback confirm()
   if (Platform.OS === "web") {
     // eslint-disable-next-line no-alert
     const ok = window.confirm(`${params.title}\n\n${params.message}`);
     return Promise.resolve(ok);
   }
 
-  // ✅ iOS/Android: Alert natif
   return new Promise((resolve) => {
     Alert.alert(params.title, params.message, [
       { text: "Annuler", style: "cancel", onPress: () => resolve(false) },
@@ -57,12 +56,12 @@ export default function ContactsScreen() {
   const { data: groups = [], isLoading: groupsLoading } = useGetGroupsQuery();
   const [updateContact] = useUpdateContactMutation();
 
-  // DELETE centralisé (Option B)
   const [deleteContact, { isLoading: isDeleting }] = useDeleteContactMutation();
+  const [bulkDeleteContacts, { isLoading: isBulkDeleting }] =
+    useBulkDeleteContactsMutation();
 
   const { data: currentUser, isLoading: currentUserLoading } = useGetMeQuery();
 
-  // Tant que currentUser n'est pas load => copy interdit
   const clipboardEnabled = useMemo(() => {
     if (currentUserLoading) return false;
     const perms = currentUser?.role?.permissions ?? [];
@@ -75,6 +74,9 @@ export default function ContactsScreen() {
   const [subGroupId, setSubGroupId] = useState<string | null>(null);
 
   const [panel, setPanel] = useState<PanelState>(null);
+
+  // ✅ sélection multi
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     if (!groups.length) return;
@@ -111,6 +113,48 @@ export default function ContactsScreen() {
     return contacts.filter((c) => c.subGroupId === subGroupId);
   }, [contacts, subGroupId]);
 
+  // si on change de filtre, on vide la sélection
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [groupId, subGroupId]);
+
+  // si la liste change (suppression/refetch), on retire de la sélection les ids qui n’existent plus
+  useEffect(() => {
+    const existing = new Set(filteredContacts.map((c) => c.id));
+    setSelectedIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (existing.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [filteredContacts]);
+
+  const selectionCount = selectedIds.size;
+  const deleting = isDeleting || isBulkDeleting;
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const setSelectedForMany = useCallback((ids: string[], select: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (select) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
   const formatDateFR = useCallback((value: unknown) => {
     if (!value) return "";
     const d = value instanceof Date ? value : new Date(String(value));
@@ -126,13 +170,10 @@ export default function ContactsScreen() {
     setPanel({ type: "edit", contactId: contact.id });
   }, []);
 
-  // Option B: suppression centralisée + confirmation web/mobile
+  // suppression unitaire
   const onRequestDelete = useCallback(
     async (contact: Contact) => {
-      if (isDeleting) return;
-
-      // Debug si besoin:
-      // console.log("delete pressed", contact.id);
+      if (deleting) return;
 
       const ok = await confirmDelete({
         title: "Supprimer le contact",
@@ -144,21 +185,134 @@ export default function ContactsScreen() {
       try {
         await deleteContact({ id: contact.id }).unwrap();
 
-        // si la fiche ouverte correspond au contact supprimé => fermer
         setPanel((prev) => {
           if (prev?.type === "edit" && prev.contactId === contact.id)
             return null;
           return prev;
         });
+
+        setSelectedIds((prev) => {
+          if (!prev.has(contact.id)) return prev;
+          const next = new Set(prev);
+          next.delete(contact.id);
+          return next;
+        });
       } catch {
-        // Optionnel: toast / message d'erreur
+        // optionnel: toast
       }
     },
-    [deleteContact, isDeleting]
+    [deleteContact, deleting]
   );
+
+  // ✅ suppression multiple via route bulk
+  const onRequestDeleteSelected = useCallback(async () => {
+    if (deleting) return;
+    if (selectedIds.size === 0) return;
+
+    const ids = [...selectedIds];
+
+    const ok = await confirmDelete({
+      title: "Supprimer des contacts",
+      message: `Vous allez supprimer ${ids.length} contact(s).\n\nCette action est définitive. Continuer ?`,
+    });
+
+    if (!ok) return;
+
+    try {
+      const res = await bulkDeleteContacts({ ids }).unwrap();
+
+      // si la fiche ouverte correspond à un contact supprimé => fermer
+      setPanel((prev) => {
+        if (prev?.type !== "edit") return prev;
+        if (!prev.contactId) return prev;
+        if (ids.includes(prev.contactId)) return null;
+        return prev;
+      });
+
+      setSelectedIds(new Set());
+
+      // optionnel: si tu veux informer sur notFoundIds
+      // if (res.notFoundIds?.length) console.warn("Not found:", res.notFoundIds);
+      void res;
+    } catch {
+      // optionnel: toast
+    }
+  }, [bulkDeleteContacts, deleting, selectedIds]);
 
   const columns = useMemo<GridColumnDef<Contact>[]>(
     () => [
+      // ✅ Colonne sélection + Select-all sur page courante
+      {
+        id: "__select__",
+        header: ({ table }: any) => {
+          const pageRows = table.getPaginationRowModel().rows as any[];
+          const pageIds = pageRows.map((r) => r.original.id as string);
+
+          const allSelected =
+            pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+          const someSelected = pageIds.some((id) => selectedIds.has(id));
+
+          // Indicateur "intermédiaire"
+          const iconName = allSelected
+            ? "checkbox"
+            : someSelected
+            ? "remove-circle-outline"
+            : "square-outline";
+
+          return (
+            <Pressable
+              onPress={() => {
+                if (!pageIds.length) return;
+                setSelectedForMany(pageIds, !allSelected);
+              }}
+              hitSlop={10}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: allSelected }}
+              accessibilityLabel="Sélectionner tous les contacts de la page"
+              style={styles.checkboxHeader}
+              disabled={deleting}
+            >
+              <Ionicons
+                name={iconName as any}
+                size={18}
+                color={allSelected ? "#1F536E" : "#64748B"}
+              />
+            </Pressable>
+          );
+        },
+        enableSorting: false,
+        meta: { width: 44 },
+        cell: ({ row }) => {
+          const id = row.original.id;
+          const checked = selectedIds.has(id);
+
+          return (
+            <Pressable
+              onPress={() => toggleSelected(id)}
+              hitSlop={10}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked }}
+              accessibilityLabel={
+                checked
+                  ? "Désélectionner le contact"
+                  : "Sélectionner le contact"
+              }
+              style={({ pressed }) => [
+                styles.checkboxCell,
+                pressed && { opacity: 0.75 },
+              ]}
+              disabled={deleting}
+            >
+              <Ionicons
+                name={checked ? "checkbox" : "square-outline"}
+                size={18}
+                color={checked ? "#1F536E" : "#64748B"}
+              />
+            </Pressable>
+          );
+        },
+      },
+
       { accessorKey: "lastName", header: "Nom", meta: { editable: true } },
       { accessorKey: "firstName", header: "Prénom", meta: { editable: true } },
       {
@@ -216,7 +370,7 @@ export default function ContactsScreen() {
           <View style={styles.rowActions}>
             <Pressable
               onPress={() => onRequestDelete(row.original)}
-              disabled={isDeleting}
+              disabled={deleting}
               hitSlop={10}
               style={({ pressed }) => ({
                 width: 32,
@@ -224,7 +378,7 @@ export default function ContactsScreen() {
                 borderRadius: 10,
                 alignItems: "center",
                 justifyContent: "center",
-                opacity: isDeleting ? 0.4 : pressed ? 0.7 : 1,
+                opacity: deleting ? 0.4 : pressed ? 0.7 : 1,
               })}
               accessibilityRole="button"
               accessibilityLabel="Supprimer le contact"
@@ -245,6 +399,7 @@ export default function ContactsScreen() {
               })}
               accessibilityRole="button"
               accessibilityLabel="Ouvrir la fiche contact"
+              disabled={deleting}
             >
               <Ionicons name="open-outline" size={18} color="#1F536E" />
             </Pressable>
@@ -252,7 +407,15 @@ export default function ContactsScreen() {
         ),
       },
     ],
-    [formatDateFR, isDeleting, onRequestDelete, openContactInfos]
+    [
+      deleting,
+      formatDateFR,
+      onRequestDelete,
+      openContactInfos,
+      selectedIds,
+      setSelectedForMany,
+      toggleSelected,
+    ]
   );
 
   const selectedContact =
@@ -262,6 +425,8 @@ export default function ContactsScreen() {
 
   const isInfosOpen = panel !== null;
   const canAddContact = !!subGroupId;
+
+  const deleteSelectedDisabled = selectionCount === 0 || deleting;
 
   return (
     <View style={[styles.screen, { backgroundColor: backgroundLight }]}>
@@ -276,7 +441,7 @@ export default function ContactsScreen() {
           }}
           searchable
           searchPlaceholder="Rechercher un groupe..."
-          disabled={groupsLoading || groupOptions.length === 0}
+          disabled={groupsLoading || groupOptions.length === 0 || deleting}
         />
 
         <Select<string>
@@ -286,7 +451,7 @@ export default function ContactsScreen() {
           onChange={(id) => setSubGroupId(id)}
           searchable
           searchPlaceholder="Rechercher un sous-groupe..."
-          disabled={!groupId || subGroupOptions.length === 0}
+          disabled={!groupId || subGroupOptions.length === 0 || deleting}
         />
 
         <Pressable
@@ -294,14 +459,33 @@ export default function ContactsScreen() {
             if (!canAddContact) return;
             setPanel({ type: "create" });
           }}
-          disabled={!canAddContact}
+          disabled={!canAddContact || deleting}
           style={({ pressed }) => [
             styles.addBtn,
-            !canAddContact && styles.addBtnDisabled,
-            pressed && canAddContact && styles.addBtnPressed,
+            (!canAddContact || deleting) && styles.addBtnDisabled,
+            pressed && canAddContact && !deleting && styles.addBtnPressed,
           ]}
         >
           <Text style={styles.addBtnText}>Ajouter Contact</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={onRequestDeleteSelected}
+          disabled={deleteSelectedDisabled}
+          style={({ pressed }) => [
+            styles.deleteSelectedBtn,
+            deleteSelectedDisabled && styles.deleteSelectedBtnDisabled,
+            pressed &&
+              !deleteSelectedDisabled &&
+              styles.deleteSelectedBtnPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Supprimer les contacts sélectionnés"
+        >
+          <Ionicons name="trash-outline" size={16} color="white" />
+          <Text style={styles.deleteSelectedBtnText}>
+            Supprimer{selectionCount > 0 ? ` (${selectionCount})` : ""}
+          </Text>
         </Pressable>
       </View>
 
@@ -352,6 +536,7 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     justifyContent: "flex-start",
   },
+
   addBtn: {
     height: 36,
     paddingHorizontal: 14,
@@ -371,6 +556,42 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 13,
   },
+
+  deleteSelectedBtn: {
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "#B91C1C",
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  deleteSelectedBtnDisabled: {
+    backgroundColor: "#FDA4AF",
+    opacity: 0.7,
+  },
+  deleteSelectedBtnPressed: {
+    opacity: 0.9,
+  },
+  deleteSelectedBtnText: {
+    color: "white",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+
+  checkboxHeader: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxCell: {
+    width: "100%",
+    minHeight: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   rowActions: {
     marginLeft: "auto",
     flexDirection: "row",

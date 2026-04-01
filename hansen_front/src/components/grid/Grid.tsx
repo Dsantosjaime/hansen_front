@@ -104,10 +104,7 @@ function EditableCell<TData extends object>(props: {
   const initial = String(props.getValue() ?? "");
   const [val, setVal] = useState(initial);
 
-  // Empêche les commits doublons (ex: onSubmitEditing + onBlur)
   const skipNextBlurCommitRef = useRef(false);
-
-  // Empêche les commits identiques successifs (Select qui déclenche 2 fois, etc.)
   const lastCommittedRef = useRef<unknown>(initial);
 
   useEffect(() => {
@@ -147,7 +144,6 @@ function EditableCell<TData extends object>(props: {
     }
   };
 
-  // ----- Editor "select" -----
   if (props.meta?.editor === "select" && props.meta.selectOptions) {
     const options = props.meta.selectOptions as SelectOption<string>[];
 
@@ -223,12 +219,9 @@ export function Grid<TData extends object>({
     pageSize,
   });
 
-  // Copie locale pour édition optimiste
   const [localData, setLocalData] = useState<TData[]>(data);
   useEffect(() => setLocalData(data), [data]);
 
-  // ✅ IMPORTANT: si data shrink (delete), on garde la page courante,
-  // mais on "clamp" si on est sur une page qui n’existe plus.
   useEffect(() => {
     const nextPageCount = Math.max(1, Math.ceil(localData.length / pageSize));
     const maxPageIndex = nextPageCount - 1;
@@ -254,7 +247,6 @@ export function Grid<TData extends object>({
 
     state: { sorting, pagination },
 
-    // ✅ optionnel: reset à la page 1 quand on change le tri (UX classique)
     onSortingChange: (updater) => {
       setSorting(updater as any);
       setPagination((p) => ({ ...p, pageIndex: 0 }));
@@ -267,7 +259,6 @@ export function Grid<TData extends object>({
     getPaginationRowModel: getPaginationRowModel(),
     getRowId: getRowId as any,
 
-    // ✅ LA correction principale : empêche TanStack de reset pageIndex à 0 quand data change
     autoResetPageIndex: false,
     autoResetAll: false,
 
@@ -372,6 +363,11 @@ export function Grid<TData extends object>({
               | GridColumnMeta<TData>
               | undefined;
 
+            const headerRendered = flexRender(
+              header.column.columnDef.header,
+              header.getContext()
+            );
+
             return (
               <Pressable
                 key={header.id}
@@ -383,12 +379,14 @@ export function Grid<TData extends object>({
                   meta?.width ? { width: meta.width, flexGrow: 0 } : null,
                 ]}
               >
-                <Text style={styles.headerText} numberOfLines={1}>
-                  {flexRender(
-                    header.column.columnDef.header,
-                    header.getContext()
-                  )}
-                </Text>
+                {/* ✅ FIX: support header as ReactElement (checkbox, etc.) */}
+                {React.isValidElement(headerRendered) ? (
+                  <View style={styles.headerCustom}>{headerRendered}</View>
+                ) : (
+                  <Text style={styles.headerText} numberOfLines={1}>
+                    {String(headerRendered ?? "")}
+                  </Text>
+                )}
 
                 {canSort ? (
                   <SortIcon dir={dir} />
@@ -548,6 +546,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerText: { flex: 1, fontSize: 12, fontWeight: "800" },
+
+  // ✅ NEW: container for custom header elements (checkbox, etc.)
+  headerCustom: { flex: 1, alignItems: "flex-start", justifyContent: "center" },
+
   sortIcon: { fontSize: 12, fontWeight: "900", opacity: 0.9 },
   sortIconIdle: { opacity: 0.55 },
   sortSpacer: { width: 14 },
@@ -582,7 +584,6 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
   },
 
-  // Web: empêche la sélection de texte (best-effort)
   noSelect: {
     userSelect: "none",
     WebkitUserSelect: "none",

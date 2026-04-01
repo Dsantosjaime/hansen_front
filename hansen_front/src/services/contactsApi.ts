@@ -56,12 +56,22 @@ export type CreateContactDto = {
 
 export type UpdateContactDto = Partial<CreateContactDto>;
 
+export type BulkDeleteContactsDto = {
+  ids: string[];
+};
+
+export type BulkDeleteContactsResult = {
+  requestedCount: number;
+  foundCount: number;
+  deletedCount: number;
+  notFoundIds: string[];
+};
+
 /**
  * Enlève tout champ "non DTO" si jamais il est présent par erreur.
  * (utile si tu passes un objet Contact complet au lieu d'un DTO)
  */
 function sanitizeContactPayload<T extends Record<string, any>>(data: T) {
-  // enlève les champs typiques non attendus par les DTO
   const { id, createdAt, updatedAt, ...rest } = data;
   return rest;
 }
@@ -146,6 +156,21 @@ export const contactsApi = createApi({
         { type: "Contacts", id: arg.id },
       ],
     }),
+
+    bulkDeleteContacts: builder.mutation<
+      BulkDeleteContactsResult,
+      BulkDeleteContactsDto
+    >({
+      query: (body) => ({
+        url: "/contacts/bulk-delete",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (_res, _err, arg) => [
+        { type: "Contacts", id: "LIST" },
+        ...(arg.ids ?? []).map((id) => ({ type: "Contacts" as const, id })),
+      ],
+    }),
   }),
 });
 
@@ -156,4 +181,5 @@ export const {
   useCreateContactMutation,
   useUpdateContactMutation,
   useDeleteContactMutation,
+  useBulkDeleteContactsMutation,
 } = contactsApi;
