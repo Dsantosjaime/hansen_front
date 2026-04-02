@@ -36,6 +36,15 @@ type GridColumnMeta<TData extends object> = {
 
   updateValue?: (row: TData, value: unknown, columnId: string) => TData;
   width?: number;
+
+  /**
+   * ✅ NEW: style du container d'éditeur (utile pour colorer le Select "Statut")
+   */
+  editorContainerStyle?: (args: {
+    value: unknown;
+    row: TData;
+    columnId: string;
+  }) => any;
 };
 
 export type GridColumnDef<TData extends object> = ColumnDef<TData, unknown> & {
@@ -50,11 +59,6 @@ type DataGridProps<TData extends object> = {
   getRowId?: (row: TData, index: number) => string;
   onCellUpdate?: (payload: CellUpdatePayload<TData>) => void;
 
-  /**
-   * Web only (best-effort):
-   * - false => bloque clic droit + copy/cut/paste + raccourcis Ctrl/Cmd+C/V/X
-   * - true => normal
-   */
   clipboardEnabled?: boolean;
 };
 
@@ -144,11 +148,23 @@ function EditableCell<TData extends object>(props: {
     }
   };
 
+  // ----- Editor "select" -----
   if (props.meta?.editor === "select" && props.meta.selectOptions) {
     const options = props.meta.selectOptions as SelectOption<string>[];
 
+    const extraStyle = props.meta.editorContainerStyle?.({
+      value: val,
+      row: props.rowOriginal,
+      columnId: props.columnId,
+    });
+
     return (
-      <View style={!props.clipboardEnabled ? styles.noSelect : undefined}>
+      <View
+        style={[
+          !props.clipboardEnabled ? styles.noSelect : null,
+          extraStyle ?? null,
+        ]}
+      >
         <Select
           value={val}
           options={options}
@@ -368,18 +384,33 @@ export function Grid<TData extends object>({
               header.getContext()
             );
 
+            const cellStyle = [
+              styles.headerCell,
+              meta?.width ? { width: meta.width, flexGrow: 0 } : null,
+            ];
+
+            // ✅ IMPORTANT: si la colonne n’est pas sortable, on utilise View (sinon Pressable)
+            if (!canSort) {
+              return (
+                <View key={header.id} style={cellStyle}>
+                  {React.isValidElement(headerRendered) ? (
+                    <View style={styles.headerCustom}>{headerRendered}</View>
+                  ) : (
+                    <Text style={styles.headerText} numberOfLines={1}>
+                      {String(headerRendered ?? "")}
+                    </Text>
+                  )}
+                  <View style={styles.sortSpacer} />
+                </View>
+              );
+            }
+
             return (
               <Pressable
                 key={header.id}
-                onPress={
-                  canSort ? header.column.getToggleSortingHandler() : undefined
-                }
-                style={[
-                  styles.headerCell,
-                  meta?.width ? { width: meta.width, flexGrow: 0 } : null,
-                ]}
+                onPress={header.column.getToggleSortingHandler()}
+                style={cellStyle}
               >
-                {/* ✅ FIX: support header as ReactElement (checkbox, etc.) */}
                 {React.isValidElement(headerRendered) ? (
                   <View style={styles.headerCustom}>{headerRendered}</View>
                 ) : (
@@ -388,11 +419,7 @@ export function Grid<TData extends object>({
                   </Text>
                 )}
 
-                {canSort ? (
-                  <SortIcon dir={dir} />
-                ) : (
-                  <View style={styles.sortSpacer} />
-                )}
+                <SortIcon dir={dir} />
               </Pressable>
             );
           })}
@@ -546,9 +573,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerText: { flex: 1, fontSize: 12, fontWeight: "800" },
-
-  // ✅ NEW: container for custom header elements (checkbox, etc.)
-  headerCustom: { flex: 1, alignItems: "flex-start", justifyContent: "center" },
+  headerCustom: { flex: 1, minWidth: 0 },
 
   sortIcon: { fontSize: 12, fontWeight: "900", opacity: 0.9 },
   sortIconIdle: { opacity: 0.55 },

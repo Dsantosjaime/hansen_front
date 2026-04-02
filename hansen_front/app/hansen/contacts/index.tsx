@@ -49,6 +49,9 @@ function confirmDelete(params: {
   });
 }
 
+// ✅ Valeur sentinelle (non vide) pour éviter Radix value=""
+type StatusFilterValue = "ALL" | Status;
+
 export default function ContactsScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
   const border = useThemeColor({ dark: "#1F2937" }, "text");
@@ -73,9 +76,12 @@ export default function ContactsScreen() {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [subGroupId, setSubGroupId] = useState<string | null>(null);
 
+  // ✅ filtre statut (null = tous)
+  const [statusFilter, setStatusFilter] = useState<Status | null>(null);
+
   const [panel, setPanel] = useState<PanelState>(null);
 
-  // ✅ sélection multi
+  // sélection multi
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -86,6 +92,7 @@ export default function ContactsScreen() {
     if (!currentIsValid) {
       setGroupId(groups[0].id);
       setSubGroupId(null);
+      setStatusFilter(null);
     }
   }, [groups, groupId]);
 
@@ -108,17 +115,22 @@ export default function ContactsScreen() {
     groupId ? { groupId } : (undefined as any)
   );
 
+  // filtre subgroup + filtre status
   const filteredContacts = useMemo(() => {
-    if (!subGroupId) return contacts;
-    return contacts.filter((c) => c.subGroupId === subGroupId);
-  }, [contacts, subGroupId]);
+    let list = contacts;
+
+    if (subGroupId) list = list.filter((c) => c.subGroupId === subGroupId);
+    if (statusFilter) list = list.filter((c) => c.status === statusFilter);
+
+    return list;
+  }, [contacts, subGroupId, statusFilter]);
 
   // si on change de filtre, on vide la sélection
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [groupId, subGroupId]);
+  }, [groupId, subGroupId, statusFilter]);
 
-  // si la liste change (suppression/refetch), on retire de la sélection les ids qui n’existent plus
+  // si la liste change, on retire de la sélection les ids qui n’existent plus
   useEffect(() => {
     const existing = new Set(filteredContacts.map((c) => c.id));
     setSelectedIds((prev) => {
@@ -170,7 +182,6 @@ export default function ContactsScreen() {
     setPanel({ type: "edit", contactId: contact.id });
   }, []);
 
-  // suppression unitaire
   const onRequestDelete = useCallback(
     async (contact: Contact) => {
       if (deleting) return;
@@ -198,13 +209,12 @@ export default function ContactsScreen() {
           return next;
         });
       } catch {
-        // optionnel: toast
+        // optionnel toast
       }
     },
     [deleteContact, deleting]
   );
 
-  // ✅ suppression multiple via route bulk
   const onRequestDeleteSelected = useCallback(async () => {
     if (deleting) return;
     if (selectedIds.size === 0) return;
@@ -219,29 +229,28 @@ export default function ContactsScreen() {
     if (!ok) return;
 
     try {
-      const res = await bulkDeleteContacts({ ids }).unwrap();
+      await bulkDeleteContacts({ ids }).unwrap();
 
-      // si la fiche ouverte correspond à un contact supprimé => fermer
       setPanel((prev) => {
         if (prev?.type !== "edit") return prev;
-        if (!prev.contactId) return prev;
         if (ids.includes(prev.contactId)) return null;
         return prev;
       });
 
       setSelectedIds(new Set());
-
-      // optionnel: si tu veux informer sur notFoundIds
-      // if (res.notFoundIds?.length) console.warn("Not found:", res.notFoundIds);
-      void res;
     } catch {
-      // optionnel: toast
+      // optionnel toast
     }
   }, [bulkDeleteContacts, deleting, selectedIds]);
 
+  // ✅ Options filtre statut (ALL + statuts) => jamais de value ""
+  const statusFilterOptions = useMemo<SelectOption<StatusFilterValue>[]>(
+    () => [{ value: "ALL", label: "Tous" }, ...(contactStatusOptions as any)],
+    []
+  );
+
   const columns = useMemo<GridColumnDef<Contact>[]>(
     () => [
-      // ✅ Colonne sélection + Select-all sur page courante
       {
         id: "__select__",
         header: ({ table }: any) => {
@@ -252,7 +261,6 @@ export default function ContactsScreen() {
             pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
           const someSelected = pageIds.some((id) => selectedIds.has(id));
 
-          // Indicateur "intermédiaire"
           const iconName = allSelected
             ? "checkbox"
             : someSelected
@@ -321,13 +329,28 @@ export default function ContactsScreen() {
         meta: { editable: true, inputType: "email" },
       },
       { accessorKey: "function", header: "Fonction", meta: { editable: true } },
+
       {
         accessorKey: "status",
-        header: "Statut",
-        cell: ({ getValue }) => {
-          const v = getValue<Status | string>();
-          return CONTACT_STATUS_LABEL[v as Status] ?? String(v);
-        },
+        header: () => (
+          <View style={styles.statusHeader}>
+            <Text style={styles.statusHeaderText}>Statut</Text>
+            <View style={styles.statusHeaderFilter}>
+              <Select<StatusFilterValue>
+                value={(statusFilter ?? "ALL") as StatusFilterValue}
+                options={statusFilterOptions}
+                onChange={(v) =>
+                  setStatusFilter(v === "ALL" ? null : (v as Status))
+                }
+                searchable={false}
+                showLabel={false}
+                density="compact"
+                disabled={deleting}
+              />
+            </View>
+          </View>
+        ),
+        enableSorting: false,
         meta: {
           editable: true,
           editor: "select",
@@ -336,8 +359,11 @@ export default function ContactsScreen() {
             ...row,
             status: typeof value === "string" ? value : value?.value,
           }),
+          editorContainerStyle: ({ value }) =>
+            String(value) === Status.TO_VERIFY ? styles.statusToVerifyBg : null,
         },
       },
+
       {
         id: "phoneNumberFirst",
         header: "Téléphone",
@@ -414,6 +440,8 @@ export default function ContactsScreen() {
       openContactInfos,
       selectedIds,
       setSelectedForMany,
+      statusFilter,
+      statusFilterOptions,
       toggleSelected,
     ]
   );
@@ -438,6 +466,7 @@ export default function ContactsScreen() {
           onChange={(id) => {
             setGroupId(id);
             setSubGroupId(null);
+            setStatusFilter(null);
           }}
           searchable
           searchPlaceholder="Rechercher un groupe..."
@@ -545,17 +574,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  addBtnDisabled: {
-    backgroundColor: "#94A3B8",
-  },
-  addBtnPressed: {
-    opacity: 0.85,
-  },
-  addBtnText: {
-    color: "white",
-    fontWeight: "800",
-    fontSize: 13,
-  },
+  addBtnDisabled: { backgroundColor: "#94A3B8" },
+  addBtnPressed: { opacity: 0.85 },
+  addBtnText: { color: "white", fontWeight: "800", fontSize: 13 },
 
   deleteSelectedBtn: {
     height: 36,
@@ -567,18 +588,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
-  deleteSelectedBtnDisabled: {
-    backgroundColor: "#FDA4AF",
-    opacity: 0.7,
-  },
-  deleteSelectedBtnPressed: {
-    opacity: 0.9,
-  },
-  deleteSelectedBtnText: {
-    color: "white",
-    fontWeight: "800",
-    fontSize: 13,
-  },
+  deleteSelectedBtnDisabled: { backgroundColor: "#FDA4AF", opacity: 0.7 },
+  deleteSelectedBtnPressed: { opacity: 0.9 },
+  deleteSelectedBtnText: { color: "white", fontWeight: "800", fontSize: 13 },
 
   checkboxHeader: {
     width: "100%",
@@ -597,5 +609,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+  },
+
+  statusHeader: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  statusHeaderText: {
+    fontSize: 12,
+    fontWeight: "800",
+    flexShrink: 0,
+  },
+  statusHeaderFilter: {
+    flex: 1,
+    minWidth: 120,
+  },
+
+  statusToVerifyBg: {
+    backgroundColor: "#FEF08A",
+    borderRadius: 10,
+    padding: 2,
   },
 });

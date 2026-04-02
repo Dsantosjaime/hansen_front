@@ -1,6 +1,13 @@
 import Ionicons from "@expo/vector-icons/build/Ionicons";
 import React, { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { Select } from "@/components/ui/Select";
 import type { SelectOption } from "@/components/ui/select.types";
@@ -13,6 +20,7 @@ import {
 } from "@/components/extract/SelectGroupsSubGroups";
 import {
   useGetEmailMarketingTemplatesQuery,
+  useMarkEmailMarketingCampaignAsSentMutation,
   useSendEmailMarketingCampaignMutation,
 } from "@/services/emailApi";
 import { useGetGroupsQuery } from "@/services/groupsApi";
@@ -35,6 +43,22 @@ type UploadedAttachment = {
   mimeType: string;
 };
 
+function confirmAction(params: { title: string; message: string }) {
+  if (Platform.OS === "web") {
+    // eslint-disable-next-line no-alert
+    return Promise.resolve(
+      window.confirm(`${params.title}\n\n${params.message}`)
+    );
+  }
+
+  return new Promise<boolean>((resolve) => {
+    Alert.alert(params.title, params.message, [
+      { text: "Annuler", style: "cancel", onPress: () => resolve(false) },
+      { text: "Confirmer", style: "default", onPress: () => resolve(true) },
+    ]);
+  });
+}
+
 export function NewEmail({ onClose, handleSend }: Props) {
   const background = useThemeColor({}, "backgroundDark");
   const backgroundSecond = useThemeColor({}, "backgroundSecond");
@@ -54,7 +78,6 @@ export function NewEmail({ onClose, handleSend }: Props) {
     const asset = await pickAttachmentWeb();
     if (!asset) return;
 
-    // Vérif taille (quand dispo)
     if (typeof asset.size === "number" && asset.size > MAX_ATTACHMENT_SIZE) {
       console.warn("Fichier trop volumineux (max 4 Mo)");
       return;
@@ -78,7 +101,11 @@ export function NewEmail({ onClose, handleSend }: Props) {
   const [sendCampaign, { isLoading: sending }] =
     useSendEmailMarketingCampaignMutation();
 
+  const [markSent, { isLoading: marking }] =
+    useMarkEmailMarketingCampaignAsSentMutation();
+
   const templatesBusy = templatesFetching || templatesLoading;
+  const busy = sending || marking || uploadingAttachment;
 
   const templateOptions = useMemo<SelectOption<number>[]>(
     () =>
@@ -104,12 +131,6 @@ export function NewEmail({ onClose, handleSend }: Props) {
 
   const [selected, setSelected] = useState<GroupsAndSubGroupSelected>([]);
 
-  const canSend = useMemo(
-    () =>
-      !!templateId && selected.length > 0 && !sending && !uploadingAttachment,
-    [templateId, selected.length, sending, uploadingAttachment]
-  );
-
   const toIdsPayload = useCallback((sel: GroupsAndSubGroupSelected) => {
     const groupIds: string[] = [];
     const subGroupIds: string[] = [];
@@ -127,6 +148,16 @@ export function NewEmail({ onClose, handleSend }: Props) {
 
     return { groupIds, subGroupIds };
   }, []);
+
+  const canSend = useMemo(
+    () => !!templateId && selected.length > 0 && !busy,
+    [templateId, selected.length, busy]
+  );
+
+  const canMarkSent = useMemo(
+    () => !!templateId && selected.length > 0 && !busy,
+    [templateId, selected.length, busy]
+  );
 
   const onSend = useCallback(async () => {
     if (!templateId) return;
@@ -170,6 +201,33 @@ export function NewEmail({ onClose, handleSend }: Props) {
     handleSend,
   ]);
 
+  const onMarkAsAlreadySent = useCallback(async () => {
+    if (!templateId) return;
+    if (selected.length === 0) return;
+
+    const ok = await confirmAction({
+      title: "Marquer comme déjà envoyé",
+      message:
+        "Cette action bloquera l'envoi de ce template aux contacts existants des sous-groupes sélectionnés.\n\nLes nouveaux contacts ajoutés plus tard resteront éligibles.\n\nContinuer ?",
+    });
+
+    if (!ok) return;
+
+    const { subGroupIds } = toIdsPayload(selected);
+
+    // Important: on envoie uniquement subGroupIds pour ne pas inclure tout un groupe
+    // si l'utilisateur n'a sélectionné que certains subgroups.
+    await markSent({
+      templateId,
+      subGroupIds: subGroupIds.length ? subGroupIds : undefined,
+    }).unwrap();
+
+    // reset UI (comme après un envoi)
+    setSelected([]);
+    setTemplateId(null);
+    setAttachmentAsset(null);
+  }, [markSent, selected, templateId, toIdsPayload]);
+
   return (
     <View
       style={[
@@ -191,16 +249,17 @@ export function NewEmail({ onClose, handleSend }: Props) {
                   ? "Chargement des templates..."
                   : "Choisir un template..."
               }
-              disabled={templatesBusy || templateOptions.length === 0}
+              disabled={templatesBusy || templateOptions.length === 0 || busy}
             />
           </View>
 
           <Pressable
             onPress={onPickAttachment}
             hitSlop={10}
+            disabled={busy}
             style={({ pressed }) => [
               styles.iconBtn,
-              { opacity: pressed ? 0.7 : 1 },
+              { opacity: busy ? 0.35 : pressed ? 0.7 : 1 },
             ]}
             accessibilityRole="button"
             accessibilityLabel="Ajouter une pièce jointe"
@@ -220,8 +279,11 @@ export function NewEmail({ onClose, handleSend }: Props) {
 
             <Pressable
               onPress={onRemoveAttachment}
+              disabled={busy}
               hitSlop={10}
-              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+              style={({ pressed }) => [
+                { opacity: busy ? 0.35 : pressed ? 0.7 : 1 },
+              ]}
               accessibilityRole="button"
               accessibilityLabel="Retirer la pièce jointe"
             >
@@ -235,6 +297,21 @@ export function NewEmail({ onClose, handleSend }: Props) {
         ) : null}
 
         <View style={styles.headerRight}>
+          {/* ✅ NEW: bouton "marqué comme déjà envoyé" */}
+          <Pressable
+            onPress={onMarkAsAlreadySent}
+            disabled={!canMarkSent}
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              { opacity: !canMarkSent ? 0.35 : pressed ? 0.7 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Marquer comme déjà envoyé"
+          >
+            <Ionicons name="checkmark-done-outline" size={22} color={text} />
+          </Pressable>
+
           <Pressable
             onPress={onSend}
             disabled={!canSend}
@@ -274,7 +351,7 @@ export function NewEmail({ onClose, handleSend }: Props) {
               onChange={setFilterGroupId}
               searchable
               searchPlaceholder="Rechercher un groupe..."
-              disabled={isFetching || filterOptions.length === 0}
+              disabled={isFetching || filterOptions.length === 0 || busy}
             />
           </View>
 
@@ -314,7 +391,6 @@ export function NewEmail({ onClose, handleSend }: Props) {
 }
 
 async function pickAttachmentWeb(): Promise<DocumentPicker.DocumentPickerAsset | null> {
-  // Sur WEB, on évite le cache et on veut un vrai File dans asset.file
   const res = await DocumentPicker.getDocumentAsync({
     multiple: false,
     copyToCacheDirectory: false,
@@ -323,7 +399,6 @@ async function pickAttachmentWeb(): Promise<DocumentPicker.DocumentPickerAsset |
   if (res.canceled) return null;
   const asset = res.assets[0];
 
-  // On force le contrat: en web on doit avoir asset.file (un vrai File)
   const file = (asset as any).file as File | undefined;
   if (!file) {
     throw new Error(
@@ -349,7 +424,6 @@ async function uploadAttachmentWeb(
   const r = await fetch(`${apiBase}/campaign-attachments/upload`, {
     method: "POST",
     body: form,
-    // IMPORTANT: ne pas définir Content-Type, le navigateur ajoute le boundary
   });
 
   if (!r.ok) throw new Error(await r.text());

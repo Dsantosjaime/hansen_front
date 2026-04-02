@@ -14,7 +14,13 @@ type PanelState =
 
 type CampaignRow = {
   id: string;
-  brevoCampaignId: string;
+
+  // ✅ peut être absent pour les campagnes MANUAL
+  brevoCampaignId?: string | null;
+
+  // ✅ utile pour afficher "MANUAL"
+  source?: "BREVO" | "MANUAL";
+
   subject: string;
   status: string;
   createdAt?: string | null;
@@ -50,7 +56,8 @@ export default function EmailsScreen() {
     () =>
       campaigns.map((c) => ({
         id: c.id,
-        brevoCampaignId: c.brevoCampaignId,
+        brevoCampaignId: c.brevoCampaignId ?? null,
+        source: c.source ?? "BREVO",
         subject: c.subject,
         status: c.status,
         createdAt: c.createdAt ?? null,
@@ -79,7 +86,17 @@ export default function EmailsScreen() {
         header: "Programmée le",
         cell: (info) => formatDateFR(info.getValue() as string | null),
       },
-      { accessorKey: "brevoCampaignId", header: "ID Campagne" },
+
+      // ✅ optionnel mais recommandé pour comprendre la différence
+      {
+        accessorKey: "source",
+        header: "Source",
+        meta: { width: 110 },
+        cell: (info) => {
+          const v = info.getValue() as CampaignRow["source"];
+          return v === "MANUAL" ? "MANUAL" : "BREVO";
+        },
+      },
       { accessorKey: "subject", header: "Objet" },
       { accessorKey: "status", header: "Statut" },
       {

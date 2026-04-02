@@ -27,6 +27,32 @@ export type SendCampaignResult = {
   recipientsLogged?: number;
 };
 
+/**
+ * ✅ NEW: DTO pour "marqué comme déjà envoyé" (sans envoi)
+ * On supporte groupIds/subGroupIds côté API, mais dans l'écran NewEmail
+ * on enverra uniquement subGroupIds pour éviter d'inclure tout un groupe.
+ */
+export type MarkCampaignAsSentDto = {
+  templateId: number;
+  groupIds?: string[];
+  subGroupIds?: string[];
+};
+
+/**
+ * ✅ NEW: résultat côté backend (proposition alignée avec ce qu'on a implémenté serveur)
+ */
+export type MarkCampaignAsSentResult = {
+  ok: true;
+  emailSendId: string;
+  templateId: number;
+  subject: string;
+  lastSentAt: string; // Date ISO côté JSON
+  updatedCount: number;
+  recipientsCount: number;
+  subGroupIds: string[];
+  notFoundSubGroupIds: string[];
+};
+
 export type BulkSyncContactsDto = {
   emails: string[];
 };
@@ -58,19 +84,32 @@ export type EmailSendGroup = {
   subGroups: EmailSendSubGroup[];
 };
 
+export type EmailSendSource = "BREVO" | "MANUAL";
+
 export type EmailSend = {
   id: string;
 
-  brevoCampaignId: string;
+  // ✅ devient optionnel (MANUAL n'a pas forcément de brevoCampaignId)
+  brevoCampaignId?: string | null;
+
+  templateId: number;
+  name?: string | null;
   subject: string;
   status: string;
+
+  // ✅ NEW
+  source?: EmailSendSource;
+  note?: string | null;
 
   affected: EmailSendGroup[];
   affectedGroupIds: string[];
   affectedSubGroupIds: string[];
 
   recipientsCount?: number | null;
+
   listIds: number[];
+  tempListId?: number | null;
+
   scheduledAt?: string | null;
 
   createdAt: string;
@@ -122,7 +161,6 @@ export const emailApi = createApi({
 
     /**
      * GET /emails/marketing/campaigns
-     * BACKEND => PaginatedEmailSends
      */
     getEmailMarketingCampaigns: builder.query<
       PaginatedEmailSends,
@@ -147,7 +185,6 @@ export const emailApi = createApi({
 
     /**
      * GET /emails/marketing/campaigns/:id
-     * (nouvelle route getEmailInfo)
      */
     getEmailInfo: builder.query<EmailSend, { id: string }>({
       query: ({ id }) => ({
@@ -168,6 +205,25 @@ export const emailApi = createApi({
     >({
       query: (body) => ({
         url: "/emails/marketing/campaigns/send",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: [
+        { type: "EmailHistory", id: "LIST" },
+        { type: "EmailSync", id: "ANY" },
+        { type: "EmailCampaigns", id: "LIST" },
+      ],
+    }),
+
+    /**
+     * ✅ NEW: POST /emails/marketing/campaigns/mark-sent
+     */
+    markEmailMarketingCampaignAsSent: builder.mutation<
+      MarkCampaignAsSentResult,
+      MarkCampaignAsSentDto
+    >({
+      query: (body) => ({
+        url: "/emails/marketing/campaigns/mark-sent",
         method: "POST",
         body,
       }),
@@ -237,7 +293,6 @@ export const emailApi = createApi({
 
     /**
      * GET /emails/contacts/:contactId
-     * Maintenant: renvoie une liste de EmailSend (campagnes) pertinentes pour le contact
      */
     getContactEmails: builder.query<EmailSend[], { contactId: string }>({
       query: ({ contactId }) => ({
@@ -257,6 +312,7 @@ export const {
   useGetEmailMarketingCampaignsQuery,
   useGetEmailInfoQuery,
   useSendEmailMarketingCampaignMutation,
+  useMarkEmailMarketingCampaignAsSentMutation,
   useEnsureMarketingListForSubGroupMutation,
   useResyncMarketingSubGroupMutation,
   useResyncMarketingAllSubGroupsMutation,
