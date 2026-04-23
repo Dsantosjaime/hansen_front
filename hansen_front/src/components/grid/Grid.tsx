@@ -37,10 +37,13 @@ type GridColumnMeta<TData extends object> = {
   updateValue?: (row: TData, value: unknown, columnId: string) => TData;
   width?: number;
 
-  /**
-   * ✅ NEW: style du container d'éditeur (utile pour colorer le Select "Statut")
-   */
   editorContainerStyle?: (args: {
+    value: unknown;
+    row: TData;
+    columnId: string;
+  }) => any;
+
+  cellContainerStyle?: (args: {
     value: unknown;
     row: TData;
     columnId: string;
@@ -58,7 +61,6 @@ type DataGridProps<TData extends object> = {
   initialPageIndex?: number;
   getRowId?: (row: TData, index: number) => string;
   onCellUpdate?: (payload: CellUpdatePayload<TData>) => void;
-
   clipboardEnabled?: boolean;
 };
 
@@ -148,7 +150,6 @@ function EditableCell<TData extends object>(props: {
     }
   };
 
-  // ----- Editor "select" -----
   if (props.meta?.editor === "select" && props.meta.selectOptions) {
     const options = props.meta.selectOptions as SelectOption<string>[];
 
@@ -339,6 +340,27 @@ export function Grid<TData extends object>({
     return "";
   }
 
+  const getFixedColumnStyle = (width?: number) =>
+    width
+      ? {
+          width,
+          minWidth: width,
+          maxWidth: width,
+          flexGrow: 0,
+          flexShrink: 0,
+        }
+      : null;
+
+  const getCompactColumnPaddingStyle = (width?: number) =>
+    width && width <= 80
+      ? {
+          paddingHorizontal: 4,
+          paddingVertical: 6,
+        }
+      : null;
+
+  const isCompactColumn = (width?: number) => Boolean(width && width <= 80);
+
   const preventIfNoClipboard = (e: any) => {
     if (clipboardEnabled) return;
     e?.preventDefault?.();
@@ -379,6 +401,8 @@ export function Grid<TData extends object>({
               | GridColumnMeta<TData>
               | undefined;
 
+            const compact = isCompactColumn(meta?.width);
+
             const headerRendered = flexRender(
               header.column.columnDef.header,
               header.getContext()
@@ -386,21 +410,36 @@ export function Grid<TData extends object>({
 
             const cellStyle = [
               styles.headerCell,
-              meta?.width ? { width: meta.width, flexGrow: 0 } : null,
+              getFixedColumnStyle(meta?.width),
+              getCompactColumnPaddingStyle(meta?.width),
+              compact ? styles.headerCellCompact : null,
             ];
 
-            // ✅ IMPORTANT: si la colonne n’est pas sortable, on utilise View (sinon Pressable)
             if (!canSort) {
               return (
                 <View key={header.id} style={cellStyle}>
                   {React.isValidElement(headerRendered) ? (
-                    <View style={styles.headerCustom}>{headerRendered}</View>
+                    <View
+                      style={[
+                        styles.headerCustom,
+                        compact ? styles.headerCustomCompact : null,
+                      ]}
+                    >
+                      {headerRendered}
+                    </View>
                   ) : (
-                    <Text style={styles.headerText} numberOfLines={1}>
+                    <Text
+                      style={[
+                        styles.headerText,
+                        compact ? styles.headerTextCompact : null,
+                      ]}
+                      numberOfLines={1}
+                    >
                       {String(headerRendered ?? "")}
                     </Text>
                   )}
-                  <View style={styles.sortSpacer} />
+
+                  {!compact ? <View style={styles.sortSpacer} /> : null}
                 </View>
               );
             }
@@ -412,9 +451,22 @@ export function Grid<TData extends object>({
                 style={cellStyle}
               >
                 {React.isValidElement(headerRendered) ? (
-                  <View style={styles.headerCustom}>{headerRendered}</View>
+                  <View
+                    style={[
+                      styles.headerCustom,
+                      compact ? styles.headerCustomCompact : null,
+                    ]}
+                  >
+                    {headerRendered}
+                  </View>
                 ) : (
-                  <Text style={styles.headerText} numberOfLines={1}>
+                  <Text
+                    style={[
+                      styles.headerText,
+                      compact ? styles.headerTextCompact : null,
+                    ]}
+                    numberOfLines={1}
+                  >
                     {String(headerRendered ?? "")}
                   </Text>
                 )}
@@ -443,12 +495,20 @@ export function Grid<TData extends object>({
                     cell.getContext()
                   );
 
+                  const cellExtraStyle = meta?.cellContainerStyle?.({
+                    value: cell.getValue(),
+                    row: row.original,
+                    columnId: cell.column.id,
+                  });
+
                   return (
                     <View
                       key={cell.id}
                       style={[
                         styles.cell,
-                        meta?.width ? { width: meta.width, flexGrow: 0 } : null,
+                        getFixedColumnStyle(meta?.width),
+                        getCompactColumnPaddingStyle(meta?.width),
+                        cellExtraStyle ?? null,
                       ]}
                     >
                       {editable ? (
@@ -572,8 +632,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  headerCellCompact: {
+    justifyContent: "center",
+    gap: 0,
+  },
   headerText: { flex: 1, fontSize: 12, fontWeight: "800" },
+  headerTextCompact: {
+    flex: 0,
+    textAlign: "center",
+  },
   headerCustom: { flex: 1, minWidth: 0 },
+  headerCustomCompact: {
+    flex: 0,
+    minWidth: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   sortIcon: { fontSize: 12, fontWeight: "900", opacity: 0.9 },
   sortIconIdle: { opacity: 0.55 },

@@ -5,6 +5,8 @@ import type { SelectOption } from "@/components/ui/select.types";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import {
   Contact,
+  ContactEmailStatus,
+  CONTACT_EMAIL_STATUS_LABEL,
   CONTACT_STATUS_LABEL,
   contactStatusOptions,
   Status,
@@ -16,9 +18,17 @@ import {
 import { useGetGroupsQuery } from "@/services/groupsApi";
 import { useGetMeQuery } from "@/services/usersApi";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Alert,
+  Dimensions,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -49,8 +59,158 @@ function confirmDelete(params: {
   });
 }
 
-// ✅ Valeur sentinelle (non vide) pour éviter Radix value=""
-type StatusFilterValue = "ALL" | Status;
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function StatusHeaderFilterButton(props: {
+  value: Status | null;
+  onChange: (value: Status | null) => void;
+  disabled?: boolean;
+}) {
+  const { value, onChange, disabled = false } = props;
+
+  const anchorRef = useRef<View>(null);
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  const isActive = value !== null;
+
+  const items = useMemo(
+    () => [
+      { key: "ALL", label: "Tous", value: null as Status | null },
+      ...contactStatusOptions.map((opt) => ({
+        key: opt.value,
+        label: opt.label,
+        value: opt.value,
+      })),
+    ],
+    []
+  );
+
+  const openMenu = useCallback(() => {
+    if (disabled) return;
+
+    anchorRef.current?.measureInWindow((x, y, width, height) => {
+      setAnchor({ x, y, width, height });
+      setOpen(true);
+    });
+  }, [disabled]);
+
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+  }, []);
+
+  const onSelect = useCallback(
+    (next: Status | null) => {
+      onChange(next);
+      closeMenu();
+    },
+    [closeMenu, onChange]
+  );
+
+  const screenWidth = Dimensions.get("window").width;
+  const MENU_WIDTH = 220;
+
+  const menuLeft = anchor
+    ? clamp(
+        anchor.x + anchor.width - MENU_WIDTH,
+        8,
+        screenWidth - MENU_WIDTH - 8
+      )
+    : 8;
+
+  const menuTop = anchor ? anchor.y + anchor.height + 6 : 8;
+
+  const currentLabel = value ? CONTACT_STATUS_LABEL[value] : "Tous";
+
+  return (
+    <View ref={anchorRef} collapsable={false} style={styles.statusFilterAnchor}>
+      <Pressable
+        onPress={openMenu}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Filtrer la liste par statut. Valeur actuelle : ${currentLabel}`}
+        style={({ pressed }) => [
+          styles.statusFilterBtn,
+          isActive && styles.statusFilterBtnActive,
+          (pressed || disabled) && styles.statusFilterBtnDim,
+        ]}
+      >
+        <Ionicons
+          name={isActive ? "funnel" : "funnel-outline"}
+          size={14}
+          color={isActive ? "#1F536E" : "#475569"}
+        />
+        {isActive ? <View style={styles.statusFilterDot} /> : null}
+      </Pressable>
+
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={closeMenu}
+      >
+        <View style={styles.menuOverlayRoot}>
+          <Pressable style={styles.menuOverlayBackdrop} onPress={closeMenu} />
+
+          <View
+            style={[
+              styles.statusFilterMenu,
+              {
+                width: MENU_WIDTH,
+                left: menuLeft,
+                top: menuTop,
+              },
+            ]}
+          >
+            <Text style={styles.statusFilterMenuTitle}>Filtrer le statut</Text>
+            <Text style={styles.statusFilterMenuSubtitle}>
+              Valeur actuelle : {currentLabel}
+            </Text>
+
+            <View style={styles.statusFilterMenuDivider} />
+
+            {items.map((item) => {
+              const selected =
+                item.value === null ? value === null : value === item.value;
+
+              return (
+                <Pressable
+                  key={item.key}
+                  onPress={() => onSelect(item.value)}
+                  style={({ pressed }) => [
+                    styles.statusFilterMenuItem,
+                    selected && styles.statusFilterMenuItemSelected,
+                    pressed && styles.statusFilterMenuItemPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusFilterMenuItemText,
+                      selected && styles.statusFilterMenuItemTextSelected,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+
+                  {selected ? (
+                    <Ionicons name="checkmark" size={16} color="#1F536E" />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
 
 export default function ContactsScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
@@ -75,13 +235,8 @@ export default function ContactsScreen() {
 
   const [groupId, setGroupId] = useState<string | null>(null);
   const [subGroupId, setSubGroupId] = useState<string | null>(null);
-
-  // ✅ filtre statut (null = tous)
   const [statusFilter, setStatusFilter] = useState<Status | null>(null);
-
   const [panel, setPanel] = useState<PanelState>(null);
-
-  // sélection multi
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -115,7 +270,6 @@ export default function ContactsScreen() {
     groupId ? { groupId } : (undefined as any)
   );
 
-  // filtre subgroup + filtre status
   const filteredContacts = useMemo(() => {
     let list = contacts;
 
@@ -125,12 +279,10 @@ export default function ContactsScreen() {
     return list;
   }, [contacts, subGroupId, statusFilter]);
 
-  // si on change de filtre, on vide la sélection
   useEffect(() => {
     setSelectedIds(new Set());
   }, [groupId, subGroupId, statusFilter]);
 
-  // si la liste change, on retire de la sélection les ids qui n’existent plus
   useEffect(() => {
     const existing = new Set(filteredContacts.map((c) => c.id));
     setSelectedIds((prev) => {
@@ -243,11 +395,47 @@ export default function ContactsScreen() {
     }
   }, [bulkDeleteContacts, deleting, selectedIds]);
 
-  // ✅ Options filtre statut (ALL + statuts) => jamais de value ""
-  const statusFilterOptions = useMemo<SelectOption<StatusFilterValue>[]>(
-    () => [{ value: "ALL", label: "Tous" }, ...(contactStatusOptions as any)],
+  const getEmailStatusLabel = useCallback(
+    (status?: ContactEmailStatus | null) => {
+      if (!status) return "";
+      return CONTACT_EMAIL_STATUS_LABEL[status] ?? status;
+    },
     []
   );
+
+  const getEmailStatusCellStyle = useCallback(
+    (status?: ContactEmailStatus | null) => {
+      if (
+        status === ContactEmailStatus.SPAM ||
+        status === ContactEmailStatus.UNSUBSCRIBED ||
+        status === ContactEmailStatus.HARD_BOUNCE
+      ) {
+        return styles.emailStatusErrorBg;
+      }
+
+      if (status === ContactEmailStatus.SOFT_BOUNCE) {
+        return styles.emailStatusWarningBg;
+      }
+
+      return null;
+    },
+    []
+  );
+
+  const buildUpdatePayload = useCallback((row: Contact) => {
+    return {
+      firstName: row.firstName,
+      lastName: row.lastName,
+      function: row.function,
+      status: row.status,
+      email: row.email,
+      phoneNumber: row.phoneNumber,
+      lastContact: row.lastContact,
+      lastEmail: row.lastEmail,
+      groupId: row.groupId,
+      subGroupId: row.subGroupId,
+    };
+  }, []);
 
   const columns = useMemo<GridColumnDef<Contact>[]>(
     () => [
@@ -273,7 +461,7 @@ export default function ContactsScreen() {
                 if (!pageIds.length) return;
                 setSelectedForMany(pageIds, !allSelected);
               }}
-              hitSlop={10}
+              hitSlop={8}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: allSelected }}
               accessibilityLabel="Sélectionner tous les contacts de la page"
@@ -282,14 +470,14 @@ export default function ContactsScreen() {
             >
               <Ionicons
                 name={iconName as any}
-                size={18}
+                size={16}
                 color={allSelected ? "#1F536E" : "#64748B"}
               />
             </Pressable>
           );
         },
         enableSorting: false,
-        meta: { width: 44 },
+        meta: { width: 32 },
         cell: ({ row }) => {
           const id = row.original.id;
           const checked = selectedIds.has(id);
@@ -297,7 +485,7 @@ export default function ContactsScreen() {
           return (
             <Pressable
               onPress={() => toggleSelected(id)}
-              hitSlop={10}
+              hitSlop={8}
               accessibilityRole="checkbox"
               accessibilityState={{ checked }}
               accessibilityLabel={
@@ -313,7 +501,7 @@ export default function ContactsScreen() {
             >
               <Ionicons
                 name={checked ? "checkbox" : "square-outline"}
-                size={18}
+                size={16}
                 color={checked ? "#1F536E" : "#64748B"}
               />
             </Pressable>
@@ -331,23 +519,49 @@ export default function ContactsScreen() {
       { accessorKey: "function", header: "Fonction", meta: { editable: true } },
 
       {
+        accessorKey: "emailStatus",
+        header: "État email",
+        enableSorting: false,
+        meta: {
+          width: 170,
+          cellContainerStyle: ({ row }) =>
+            getEmailStatusCellStyle((row as Contact).emailStatus),
+        },
+        cell: ({ row }) => (
+          <Text style={styles.cellText} numberOfLines={1}>
+            {getEmailStatusLabel(row.original.emailStatus)}
+          </Text>
+        ),
+      },
+      {
+        accessorKey: "emailStatusReason",
+        header: "Raison",
+        enableSorting: false,
+        meta: {
+          width: 220,
+          cellContainerStyle: ({ row }) =>
+            getEmailStatusCellStyle((row as Contact).emailStatus),
+        },
+        cell: ({ row }) => (
+          <Text style={styles.cellText} numberOfLines={1}>
+            {row.original.emailStatusReason ?? ""}
+          </Text>
+        ),
+      },
+
+      {
         accessorKey: "status",
         header: () => (
           <View style={styles.statusHeader}>
-            <Text style={styles.statusHeaderText}>Statut</Text>
-            <View style={styles.statusHeaderFilter}>
-              <Select<StatusFilterValue>
-                value={(statusFilter ?? "ALL") as StatusFilterValue}
-                options={statusFilterOptions}
-                onChange={(v) =>
-                  setStatusFilter(v === "ALL" ? null : (v as Status))
-                }
-                searchable={false}
-                showLabel={false}
-                density="compact"
-                disabled={deleting}
-              />
-            </View>
+            <Text style={styles.statusHeaderText} numberOfLines={1}>
+              Statut
+            </Text>
+
+            <StatusHeaderFilterButton
+              value={statusFilter}
+              onChange={setStatusFilter}
+              disabled={deleting}
+            />
           </View>
         ),
         enableSorting: false,
@@ -355,9 +569,13 @@ export default function ContactsScreen() {
           editable: true,
           editor: "select",
           selectOptions: contactStatusOptions,
-          updateValue: (row: any, value: any) => ({
+          width: 150,
+          updateValue: (row: Contact, value: unknown) => ({
             ...row,
-            status: typeof value === "string" ? value : value?.value,
+            status:
+              typeof value === "string"
+                ? (value as Status)
+                : ((value as any)?.value as Status),
           }),
           editorContainerStyle: ({ value }) =>
             String(value) === Status.TO_VERIFY ? styles.statusToVerifyBg : null,
@@ -371,7 +589,7 @@ export default function ContactsScreen() {
         cell: (info) => String(info.getValue() ?? ""),
         meta: {
           editable: true,
-          updateValue: (row: any, value: unknown) => ({
+          updateValue: (row: Contact, value: unknown) => ({
             ...row,
             phoneNumber: [String(value ?? ""), row.phoneNumber?.[1] ?? ""],
           }),
@@ -391,17 +609,17 @@ export default function ContactsScreen() {
         id: "actions",
         header: "",
         enableSorting: false,
-        meta: { width: 92 },
+        meta: { width: 64 },
         cell: ({ row }) => (
           <View style={styles.rowActions}>
             <Pressable
               onPress={() => onRequestDelete(row.original)}
               disabled={deleting}
-              hitSlop={10}
+              hitSlop={8}
               style={({ pressed }) => ({
-                width: 32,
-                height: 32,
-                borderRadius: 10,
+                width: 26,
+                height: 26,
+                borderRadius: 8,
                 alignItems: "center",
                 justifyContent: "center",
                 opacity: deleting ? 0.4 : pressed ? 0.7 : 1,
@@ -409,16 +627,16 @@ export default function ContactsScreen() {
               accessibilityRole="button"
               accessibilityLabel="Supprimer le contact"
             >
-              <Ionicons name="trash-outline" size={18} color="#B91C1C" />
+              <Ionicons name="trash-outline" size={16} color="#B91C1C" />
             </Pressable>
 
             <Pressable
               onPress={() => openContactInfos(row.original)}
-              hitSlop={10}
+              hitSlop={8}
               style={({ pressed }) => ({
-                width: 32,
-                height: 32,
-                borderRadius: 10,
+                width: 26,
+                height: 26,
+                borderRadius: 8,
                 alignItems: "center",
                 justifyContent: "center",
                 opacity: pressed ? 0.7 : 1,
@@ -427,7 +645,7 @@ export default function ContactsScreen() {
               accessibilityLabel="Ouvrir la fiche contact"
               disabled={deleting}
             >
-              <Ionicons name="open-outline" size={18} color="#1F536E" />
+              <Ionicons name="open-outline" size={16} color="#1F536E" />
             </Pressable>
           </View>
         ),
@@ -436,12 +654,13 @@ export default function ContactsScreen() {
     [
       deleting,
       formatDateFR,
+      getEmailStatusCellStyle,
+      getEmailStatusLabel,
       onRequestDelete,
       openContactInfos,
       selectedIds,
       setSelectedForMany,
       statusFilter,
-      statusFilterOptions,
       toggleSelected,
     ]
   );
@@ -527,8 +746,10 @@ export default function ContactsScreen() {
               pageSize={10}
               clipboardEnabled={clipboardEnabled}
               onCellUpdate={async ({ row }) => {
-                const { id, ...data } = row;
-                await updateContact({ id, data }).unwrap();
+                await updateContact({
+                  id: row.id,
+                  data: buildUpdatePayload(row),
+                }).unwrap();
               }}
             />
           </View>
@@ -599,16 +820,17 @@ const styles = StyleSheet.create({
   },
   checkboxCell: {
     width: "100%",
-    minHeight: 18,
+    minHeight: 16,
     alignItems: "center",
     justifyContent: "center",
   },
 
   rowActions: {
-    marginLeft: "auto",
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
+    gap: 2,
   },
 
   statusHeader: {
@@ -616,21 +838,127 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 6,
   },
   statusHeaderText: {
     fontSize: 12,
     fontWeight: "800",
-    flexShrink: 0,
+    flexShrink: 1,
   },
-  statusHeaderFilter: {
+
+  statusFilterAnchor: {
+    marginLeft: "auto",
+  },
+  statusFilterBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "white",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  statusFilterBtnActive: {
+    borderColor: "#93C5FD",
+    backgroundColor: "#EFF6FF",
+  },
+  statusFilterBtnDim: {
+    opacity: 0.7,
+  },
+  statusFilterDot: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#1D4ED8",
+  },
+
+  menuOverlayRoot: {
     flex: 1,
-    minWidth: 120,
+  },
+  menuOverlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+  },
+  statusFilterMenu: {
+    position: "absolute",
+    backgroundColor: "white",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  statusFilterMenuTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0F172A",
+    paddingHorizontal: 8,
+    paddingTop: 4,
+  },
+  statusFilterMenuSubtitle: {
+    fontSize: 12,
+    color: "#64748B",
+    paddingHorizontal: 8,
+    paddingTop: 2,
+    paddingBottom: 4,
+  },
+  statusFilterMenuDivider: {
+    height: 1,
+    backgroundColor: "#E2E8F0",
+    marginVertical: 6,
+  },
+  statusFilterMenuItem: {
+    minHeight: 38,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  statusFilterMenuItemSelected: {
+    backgroundColor: "#EFF6FF",
+  },
+  statusFilterMenuItemPressed: {
+    opacity: 0.75,
+  },
+  statusFilterMenuItemText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0F172A",
+  },
+  statusFilterMenuItemTextSelected: {
+    color: "#1F536E",
+    fontWeight: "800",
   },
 
   statusToVerifyBg: {
     backgroundColor: "#FEF08A",
     borderRadius: 10,
     padding: 2,
+  },
+
+  emailStatusErrorBg: {
+    backgroundColor: "#FEE2E2",
+    borderRadius: 10,
+  },
+  emailStatusWarningBg: {
+    backgroundColor: "#FED7AA",
+    borderRadius: 10,
+  },
+
+  cellText: {
+    fontSize: 13,
+    fontWeight: "600",
   },
 });

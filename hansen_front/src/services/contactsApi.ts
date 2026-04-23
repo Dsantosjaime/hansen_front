@@ -25,12 +25,37 @@ export const contactStatusOptions: SelectOption<Status>[] = Object.values(
   label: CONTACT_STATUS_LABEL[value],
 }));
 
+export enum ContactEmailStatus {
+  PAS_D_ENVOI = "PAS_D_ENVOI",
+  TENTATIVE_ENVOI = "TENTATIVE_ENVOI",
+  DELIVRABLE = "DELIVRABLE",
+  SOFT_BOUNCE = "SOFT_BOUNCE",
+  HARD_BOUNCE = "HARD_BOUNCE",
+  UNSUBSCRIBED = "UNSUBSCRIBED",
+  SPAM = "SPAM",
+}
+
+export const CONTACT_EMAIL_STATUS_LABEL: Record<ContactEmailStatus, string> = {
+  [ContactEmailStatus.PAS_D_ENVOI]: "Pas d'envoi",
+  [ContactEmailStatus.TENTATIVE_ENVOI]: "Tentative d'envoi",
+  [ContactEmailStatus.DELIVRABLE]: "Délivrable",
+  [ContactEmailStatus.SOFT_BOUNCE]: "Soft bounce",
+  [ContactEmailStatus.HARD_BOUNCE]: "Hard bounce",
+  [ContactEmailStatus.UNSUBSCRIBED]: "Désinscrit",
+  [ContactEmailStatus.SPAM]: "Spam",
+};
+
 export type Contact = {
   id: string;
   firstName: string;
   lastName: string;
   function: string;
   status: Status;
+
+  emailStatus: ContactEmailStatus;
+  emailStatusReason?: string | null;
+  emailStatusUpdatedAt?: string | null;
+
   email: string;
   phoneNumber: string[];
   lastContact: string;
@@ -72,7 +97,16 @@ export type BulkDeleteContactsResult = {
  * (utile si tu passes un objet Contact complet au lieu d'un DTO)
  */
 function sanitizeContactPayload<T extends Record<string, any>>(data: T) {
-  const { id, createdAt, updatedAt, ...rest } = data;
+  const {
+    id,
+    createdAt,
+    updatedAt,
+    emailStatus,
+    emailStatusReason,
+    emailStatusUpdatedAt,
+    ...rest
+  } = data;
+
   return rest;
 }
 
