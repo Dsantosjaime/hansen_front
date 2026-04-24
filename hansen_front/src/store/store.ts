@@ -9,6 +9,7 @@ import { todoApi } from "@/services/todoApi";
 import { usersApi } from "@/services/usersApi";
 import { authReducer } from "@/slices/authSlice";
 import { configureStore } from "@reduxjs/toolkit";
+import { emailAddressTemplatesApi } from "@/services/emailAddressTemplatesApi";
 
 export const store = configureStore({
   reducer: {
@@ -22,6 +23,7 @@ export const store = configureStore({
     [pluginParamsApi.reducerPath]: pluginParamsApi.reducer,
     [emailApi.reducerPath]: emailApi.reducer,
     [todoApi.reducerPath]: todoApi.reducer,
+    [emailAddressTemplatesApi.reducerPath]: emailAddressTemplatesApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
@@ -33,7 +35,8 @@ export const store = configureStore({
       usersApi.middleware,
       pluginParamsApi.middleware,
       emailApi.middleware,
-      todoApi.middleware
+      todoApi.middleware,
+      emailAddressTemplatesApi.middleware
     ),
 });
 

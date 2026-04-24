@@ -8,6 +8,7 @@ function toKey(v: string | number) {
 
 const ITEM_HEIGHT_PX = 38;
 const MAX_VISIBLE_ITEMS = 10;
+const SELECT_PORTAL_Z_INDEX = 999999;
 
 export function Select<T extends string | number>({
   label,
@@ -37,18 +38,15 @@ export function Select<T extends string | number>({
 
   const queryNorm = query.trim().toLowerCase();
 
-  // Map stringKey -> T (Radix Select manipule des strings)
   const map = useMemo(() => {
     const m = new Map<string, T>();
     for (const opt of options) m.set(toKey(opt.value), opt.value);
     return m;
   }, [options]);
 
-  // Matching: on calcule une map de visibilité, mais on ne démonte PAS les items
   const visibility = useMemo(() => {
     const visible = new Map<string, boolean>();
 
-    // query vide => tout visible
     if (!searchable || queryNorm.length === 0) {
       for (const opt of options) visible.set(toKey(opt.value), true);
       return visible;
@@ -65,19 +63,18 @@ export function Select<T extends string | number>({
 
   const visibleCount = useMemo(() => {
     let count = 0;
-    for (const opt of options) if (visibility.get(toKey(opt.value))) count++;
+    for (const opt of options) {
+      if (visibility.get(toKey(opt.value))) count++;
+    }
     return count;
   }, [options, visibility]);
 
-  // Focus sur l'input à l'ouverture
   useEffect(() => {
     if (!open || !searchable) return;
     const raf = requestAnimationFrame(() => searchRef.current?.focus());
     return () => cancelAnimationFrame(raf);
   }, [open, searchable]);
 
-  // IMPORTANT: refocus défensif quand la liste "évolue" (query change)
-  // (Radix peut parfois déplacer le focus lors d'updates internes)
   useEffect(() => {
     if (!open || !searchable) return;
     const input = searchRef.current;
@@ -90,7 +87,6 @@ export function Select<T extends string | number>({
     return () => cancelAnimationFrame(raf);
   }, [open, searchable, queryNorm, visibleCount]);
 
-  // UX optionnelle : reset recherche à la fermeture
   useEffect(() => {
     if (!open) setQuery("");
   }, [open]);
@@ -140,7 +136,6 @@ export function Select<T extends string | number>({
             <SelectPrimitive.Content
               position="popper"
               sideOffset={6}
-              // Empêche certains comportements de focus gênants à la fermeture
               onCloseAutoFocus={(e) => {
                 if (!searchable) return;
                 e.preventDefault();
@@ -153,6 +148,8 @@ export function Select<T extends string | number>({
                 background: "white",
                 overflow: "hidden",
                 boxShadow: "0 10px 30px rgba(0,0,0,0.15)",
+                zIndex: SELECT_PORTAL_Z_INDEX,
+                position: "relative",
                 ...(styles?.menu ?? {}),
               }}
             >
@@ -163,7 +160,6 @@ export function Select<T extends string | number>({
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder={searchPlaceholder}
-                    // Empêche Radix (typeahead) de capter les frappes
                     onKeyDown={(e) => {
                       e.stopPropagation();
                       if (e.key === "Enter") e.preventDefault();
@@ -188,7 +184,6 @@ export function Select<T extends string | number>({
                   maxHeight: ITEM_HEIGHT_PX * MAX_VISIBLE_ITEMS + 16,
                 }}
               >
-                {/* On rend tous les items, mais on masque ceux qui ne matchent pas */}
                 {options.map((opt) => {
                   const key = toKey(opt.value);
                   const isVisible = visibility.get(key) ?? true;

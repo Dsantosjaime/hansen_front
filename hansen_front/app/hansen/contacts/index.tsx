@@ -1,9 +1,14 @@
+import {
+  EmailTemplateOption,
+  MultiSelectionOptions,
+} from "@/components/contacts/MultiSelectionOptions";
 import { ContactInfos } from "@/components/grid/ContactInfos";
 import { Grid, GridColumnDef } from "@/components/grid/Grid";
 import { Select } from "@/components/ui/Select";
 import type { SelectOption } from "@/components/ui/select.types";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import {
+  BulkUpdateEmailsResult,
   Contact,
   ContactEmailStatus,
   CONTACT_EMAIL_STATUS_LABEL,
@@ -11,10 +16,12 @@ import {
   contactStatusOptions,
   Status,
   useBulkDeleteContactsMutation,
+  useBulkUpdateEmailsMutation,
   useDeleteContactMutation,
   useGetContactsByGroupQuery,
   useUpdateContactMutation,
 } from "@/services/contactsApi";
+import { useGetEmailAddressTemplatesQuery } from "@/services/emailAddressTemplatesApi";
 import { useGetGroupsQuery } from "@/services/groupsApi";
 import { useGetMeQuery } from "@/services/usersApi";
 import { Ionicons } from "@expo/vector-icons";
@@ -57,6 +64,16 @@ function confirmDelete(params: {
       { text: "Supprimer", style: "destructive", onPress: () => resolve(true) },
     ]);
   });
+}
+
+function showInfo(params: { title: string; message: string }) {
+  if (Platform.OS === "web") {
+    // eslint-disable-next-line no-alert
+    window.alert(`${params.title}\n\n${params.message}`);
+    return;
+  }
+
+  Alert.alert(params.title, params.message);
 }
 
 function clamp(n: number, min: number, max: number) {
@@ -212,16 +229,51 @@ function StatusHeaderFilterButton(props: {
   );
 }
 
+function buildBulkUpdateSummary(result: BulkUpdateEmailsResult) {
+  const lines = [
+    `Demandés : ${result.requestedCount}`,
+    `Trouvés : ${result.foundCount}`,
+    `Mis à jour : ${result.updatedCount}`,
+  ];
+
+  if (result.unchangedCount > 0) {
+    lines.push(`Inchangés : ${result.unchangedCount}`);
+  }
+
+  if (result.invalidCount > 0) {
+    lines.push(`Invalides : ${result.invalidCount}`);
+  }
+
+  if (result.conflictCount > 0) {
+    lines.push(`Conflits : ${result.conflictCount}`);
+  }
+
+  if (result.errorCount > 0) {
+    lines.push(`Erreurs : ${result.errorCount}`);
+  }
+
+  if (result.notFoundIds.length > 0) {
+    lines.push(`Introuvables : ${result.notFoundIds.length}`);
+  }
+
+  return lines.join("\n");
+}
+
 export default function ContactsScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
   const border = useThemeColor({ dark: "#1F2937" }, "text");
 
   const { data: groups = [], isLoading: groupsLoading } = useGetGroupsQuery();
+  const { data: emailAddressTemplates = [], isLoading: emailTemplatesLoading } =
+    useGetEmailAddressTemplatesQuery({ activeOnly: true });
+
   const [updateContact] = useUpdateContactMutation();
 
   const [deleteContact, { isLoading: isDeleting }] = useDeleteContactMutation();
   const [bulkDeleteContacts, { isLoading: isBulkDeleting }] =
     useBulkDeleteContactsMutation();
+  const [bulkUpdateEmails, { isLoading: isBulkUpdatingEmails }] =
+    useBulkUpdateEmailsMutation();
 
   const { data: currentUser, isLoading: currentUserLoading } = useGetMeQuery();
 
@@ -266,6 +318,16 @@ export default function ContactsScreen() {
     [subGroups]
   );
 
+  const templateOptions = useMemo<EmailTemplateOption[]>(
+    () =>
+      emailAddressTemplates.map((tpl) => ({
+        value: tpl.id,
+        label: tpl.name,
+        pattern: tpl.pattern,
+      })),
+    [emailAddressTemplates]
+  );
+
   const { data: contacts = [] } = useGetContactsByGroupQuery(
     groupId ? { groupId } : (undefined as any)
   );
@@ -297,7 +359,7 @@ export default function ContactsScreen() {
   }, [filteredContacts]);
 
   const selectionCount = selectedIds.size;
-  const deleting = isDeleting || isBulkDeleting;
+  const actionsBusy = isDeleting || isBulkDeleting || isBulkUpdatingEmails;
 
   const toggleSelected = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -336,7 +398,7 @@ export default function ContactsScreen() {
 
   const onRequestDelete = useCallback(
     async (contact: Contact) => {
-      if (deleting) return;
+      if (actionsBusy) return;
 
       const ok = await confirmDelete({
         title: "Supprimer le contact",
@@ -361,14 +423,14 @@ export default function ContactsScreen() {
           return next;
         });
       } catch {
-        // optionnel toast
+        //
       }
     },
-    [deleteContact, deleting]
+    [actionsBusy, deleteContact]
   );
 
   const onRequestDeleteSelected = useCallback(async () => {
-    if (deleting) return;
+    if (actionsBusy) return;
     if (selectedIds.size === 0) return;
 
     const ids = [...selectedIds];
@@ -391,9 +453,38 @@ export default function ContactsScreen() {
 
       setSelectedIds(new Set());
     } catch {
-      // optionnel toast
+      //
     }
-  }, [bulkDeleteContacts, deleting, selectedIds]);
+  }, [actionsBusy, bulkDeleteContacts, selectedIds]);
+
+  const onRequestBulkUpdateEmails = useCallback(
+    async (payload: { pattern: string; domain: string; extension: string }) => {
+      if (actionsBusy) return;
+      if (selectedIds.size === 0) return;
+
+      const ids = [...selectedIds];
+
+      try {
+        const result = await bulkUpdateEmails({
+          ids,
+          ...payload,
+        }).unwrap();
+
+        showInfo({
+          title: "Mise à jour des emails",
+          message: buildBulkUpdateSummary(result),
+        });
+
+        setSelectedIds(new Set());
+      } catch {
+        showInfo({
+          title: "Erreur",
+          message: "Une erreur est survenue pendant la mise à jour des emails.",
+        });
+      }
+    },
+    [actionsBusy, bulkUpdateEmails, selectedIds]
+  );
 
   const getEmailStatusLabel = useCallback(
     (status?: ContactEmailStatus | null) => {
@@ -466,7 +557,7 @@ export default function ContactsScreen() {
               accessibilityState={{ checked: allSelected }}
               accessibilityLabel="Sélectionner tous les contacts de la page"
               style={styles.checkboxHeader}
-              disabled={deleting}
+              disabled={actionsBusy}
             >
               <Ionicons
                 name={iconName as any}
@@ -497,7 +588,7 @@ export default function ContactsScreen() {
                 styles.checkboxCell,
                 pressed && { opacity: 0.75 },
               ]}
-              disabled={deleting}
+              disabled={actionsBusy}
             >
               <Ionicons
                 name={checked ? "checkbox" : "square-outline"}
@@ -560,7 +651,7 @@ export default function ContactsScreen() {
             <StatusHeaderFilterButton
               value={statusFilter}
               onChange={setStatusFilter}
-              disabled={deleting}
+              disabled={actionsBusy}
             />
           </View>
         ),
@@ -614,7 +705,7 @@ export default function ContactsScreen() {
           <View style={styles.rowActions}>
             <Pressable
               onPress={() => onRequestDelete(row.original)}
-              disabled={deleting}
+              disabled={actionsBusy}
               hitSlop={8}
               style={({ pressed }) => ({
                 width: 26,
@@ -622,7 +713,7 @@ export default function ContactsScreen() {
                 borderRadius: 8,
                 alignItems: "center",
                 justifyContent: "center",
-                opacity: deleting ? 0.4 : pressed ? 0.7 : 1,
+                opacity: actionsBusy ? 0.4 : pressed ? 0.7 : 1,
               })}
               accessibilityRole="button"
               accessibilityLabel="Supprimer le contact"
@@ -643,7 +734,7 @@ export default function ContactsScreen() {
               })}
               accessibilityRole="button"
               accessibilityLabel="Ouvrir la fiche contact"
-              disabled={deleting}
+              disabled={actionsBusy}
             >
               <Ionicons name="open-outline" size={16} color="#1F536E" />
             </Pressable>
@@ -652,7 +743,7 @@ export default function ContactsScreen() {
       },
     ],
     [
-      deleting,
+      actionsBusy,
       formatDateFR,
       getEmailStatusCellStyle,
       getEmailStatusLabel,
@@ -673,8 +764,6 @@ export default function ContactsScreen() {
   const isInfosOpen = panel !== null;
   const canAddContact = !!subGroupId;
 
-  const deleteSelectedDisabled = selectionCount === 0 || deleting;
-
   return (
     <View style={[styles.screen, { backgroundColor: backgroundLight }]}>
       <View style={styles.toolbar}>
@@ -689,7 +778,7 @@ export default function ContactsScreen() {
           }}
           searchable
           searchPlaceholder="Rechercher un groupe..."
-          disabled={groupsLoading || groupOptions.length === 0 || deleting}
+          disabled={groupsLoading || groupOptions.length === 0 || actionsBusy}
         />
 
         <Select<string>
@@ -699,7 +788,7 @@ export default function ContactsScreen() {
           onChange={(id) => setSubGroupId(id)}
           searchable
           searchPlaceholder="Rechercher un sous-groupe..."
-          disabled={!groupId || subGroupOptions.length === 0 || deleting}
+          disabled={!groupId || subGroupOptions.length === 0 || actionsBusy}
         />
 
         <Pressable
@@ -707,34 +796,24 @@ export default function ContactsScreen() {
             if (!canAddContact) return;
             setPanel({ type: "create" });
           }}
-          disabled={!canAddContact || deleting}
+          disabled={!canAddContact || actionsBusy}
           style={({ pressed }) => [
             styles.addBtn,
-            (!canAddContact || deleting) && styles.addBtnDisabled,
-            pressed && canAddContact && !deleting && styles.addBtnPressed,
+            (!canAddContact || actionsBusy) && styles.addBtnDisabled,
+            pressed && canAddContact && !actionsBusy && styles.addBtnPressed,
           ]}
         >
           <Text style={styles.addBtnText}>Ajouter Contact</Text>
         </Pressable>
 
-        <Pressable
-          onPress={onRequestDeleteSelected}
-          disabled={deleteSelectedDisabled}
-          style={({ pressed }) => [
-            styles.deleteSelectedBtn,
-            deleteSelectedDisabled && styles.deleteSelectedBtnDisabled,
-            pressed &&
-              !deleteSelectedDisabled &&
-              styles.deleteSelectedBtnPressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Supprimer les contacts sélectionnés"
-        >
-          <Ionicons name="trash-outline" size={16} color="white" />
-          <Text style={styles.deleteSelectedBtnText}>
-            Supprimer{selectionCount > 0 ? ` (${selectionCount})` : ""}
-          </Text>
-        </Pressable>
+        <MultiSelectionOptions
+          selectedCount={selectionCount}
+          disabled={actionsBusy}
+          onDelete={onRequestDeleteSelected}
+          onApplyEmailTemplate={onRequestBulkUpdateEmails}
+          templateOptions={templateOptions}
+          templatesLoading={emailTemplatesLoading}
+        />
       </View>
 
       <View style={styles.content}>
@@ -798,20 +877,6 @@ const styles = StyleSheet.create({
   addBtnDisabled: { backgroundColor: "#94A3B8" },
   addBtnPressed: { opacity: 0.85 },
   addBtnText: { color: "white", fontWeight: "800", fontSize: 13 },
-
-  deleteSelectedBtn: {
-    height: 36,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: "#B91C1C",
-    justifyContent: "center",
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  deleteSelectedBtnDisabled: { backgroundColor: "#FDA4AF", opacity: 0.7 },
-  deleteSelectedBtnPressed: { opacity: 0.9 },
-  deleteSelectedBtnText: { color: "white", fontWeight: "800", fontSize: 13 },
 
   checkboxHeader: {
     width: "100%",

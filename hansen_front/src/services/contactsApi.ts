@@ -92,6 +92,33 @@ export type BulkDeleteContactsResult = {
   notFoundIds: string[];
 };
 
+export type BulkUpdateEmailsDto = {
+  ids: string[];
+  domain: string;
+  extension: string;
+  pattern: string;
+};
+
+export type BulkUpdateEmailsItemResult = {
+  id: string;
+  oldEmail: string;
+  newEmail: string;
+  updated: boolean;
+  reason?: string | null;
+};
+
+export type BulkUpdateEmailsResult = {
+  requestedCount: number;
+  foundCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  invalidCount: number;
+  conflictCount: number;
+  errorCount: number;
+  notFoundIds: string[];
+  items: BulkUpdateEmailsItemResult[];
+};
+
 /**
  * Enlève tout champ "non DTO" si jamais il est présent par erreur.
  * (utile si tu passes un objet Contact complet au lieu d'un DTO)
@@ -205,6 +232,21 @@ export const contactsApi = createApi({
         ...(arg.ids ?? []).map((id) => ({ type: "Contacts" as const, id })),
       ],
     }),
+
+    bulkUpdateEmails: builder.mutation<
+      BulkUpdateEmailsResult,
+      BulkUpdateEmailsDto
+    >({
+      query: (body) => ({
+        url: "/contacts/bulk-update-emails",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (_res, _err, arg) => [
+        { type: "Contacts", id: "LIST" },
+        ...(arg.ids ?? []).map((id) => ({ type: "Contacts" as const, id })),
+      ],
+    }),
   }),
 });
 
@@ -216,4 +258,5 @@ export const {
   useUpdateContactMutation,
   useDeleteContactMutation,
   useBulkDeleteContactsMutation,
+  useBulkUpdateEmailsMutation,
 } = contactsApi;
