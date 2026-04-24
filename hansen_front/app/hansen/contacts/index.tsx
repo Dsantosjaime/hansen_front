@@ -19,7 +19,7 @@ import {
   useBulkUpdateEmailsMutation,
   useDeleteContactMutation,
   useGetContactsByGroupQuery,
-  useUpdateContactMutation,
+  useUpdateContactInlineMutation,
 } from "@/services/contactsApi";
 import { useGetEmailAddressTemplatesQuery } from "@/services/emailAddressTemplatesApi";
 import { useGetGroupsQuery } from "@/services/groupsApi";
@@ -513,7 +513,28 @@ export default function ContactsScreen() {
   const { data: emailAddressTemplates = [], isLoading: emailTemplatesLoading } =
     useGetEmailAddressTemplatesQuery({ activeOnly: true });
 
-  const [updateContact] = useUpdateContactMutation();
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [subGroupId, setSubGroupId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<Status | null>(null);
+  const [emailStatusFilter, setEmailStatusFilter] =
+    useState<ContactEmailStatus | null>(null);
+  const [columnSearch, setColumnSearch] = useState<ColumnSearchState>({});
+  const [searchModal, setSearchModal] = useState<SearchModalState>({
+    open: false,
+    field: null,
+    title: "",
+    value: "",
+  });
+  const [panel, setPanel] = useState<PanelState>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
+  const {
+    data: contacts = [],
+    refetch: refetchContacts,
+    isFetching: contactsFetching,
+  } = useGetContactsByGroupQuery(groupId ? { groupId } : (undefined as any));
+
+  const [updateContactInline] = useUpdateContactInlineMutation();
 
   const [deleteContact, { isLoading: isDeleting }] = useDeleteContactMutation();
   const [bulkDeleteContacts, { isLoading: isBulkDeleting }] =
@@ -530,21 +551,6 @@ export default function ContactsScreen() {
       (p: any) => p?.subject === "Contact" && p?.action === "copy"
     );
   }, [currentUserLoading, currentUser]);
-
-  const [groupId, setGroupId] = useState<string | null>(null);
-  const [subGroupId, setSubGroupId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<Status | null>(null);
-  const [emailStatusFilter, setEmailStatusFilter] =
-    useState<ContactEmailStatus | null>(null);
-  const [columnSearch, setColumnSearch] = useState<ColumnSearchState>({});
-  const [searchModal, setSearchModal] = useState<SearchModalState>({
-    open: false,
-    field: null,
-    title: "",
-    value: "",
-  });
-  const [panel, setPanel] = useState<PanelState>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     if (!groups.length) return;
@@ -582,10 +588,6 @@ export default function ContactsScreen() {
         pattern: tpl.pattern,
       })),
     [emailAddressTemplates]
-  );
-
-  const { data: contacts = [] } = useGetContactsByGroupQuery(
-    groupId ? { groupId } : (undefined as any)
   );
 
   const setColumnSearchValue = useCallback(
@@ -735,6 +737,15 @@ export default function ContactsScreen() {
   const openContactInfos = useCallback((contact: Contact) => {
     setPanel({ type: "edit", contactId: contact.id });
   }, []);
+
+  const handleRefreshContacts = useCallback(async () => {
+    if (!groupId || contactsFetching) return;
+    try {
+      await refetchContacts();
+    } catch {
+      //
+    }
+  }, [contactsFetching, groupId, refetchContacts]);
 
   const onRequestDelete = useCallback(
     async (contact: Contact) => {
@@ -1157,7 +1168,29 @@ export default function ContactsScreen() {
       },
       {
         id: "actions",
-        header: "",
+        header: () => (
+          <View style={styles.actionsHeader}>
+            <Pressable
+              onPress={handleRefreshContacts}
+              disabled={!groupId || contactsFetching}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Rafraîchir les contacts"
+              style={({ pressed }) => [
+                styles.actionsHeaderBtn,
+                (!groupId || contactsFetching) &&
+                  styles.actionsHeaderBtnDisabled,
+                pressed && groupId && !contactsFetching && { opacity: 0.75 },
+              ]}
+            >
+              <Ionicons
+                name="refresh-outline"
+                size={16}
+                color={!groupId || contactsFetching ? "#94A3B8" : "#1F536E"}
+              />
+            </Pressable>
+          </View>
+        ),
         enableSorting: false,
         meta: { width: 64 },
         cell: ({ row }) => (
@@ -1210,11 +1243,14 @@ export default function ContactsScreen() {
       columnSearch.lastEmail,
       columnSearch.lastName,
       columnSearch.phoneNumberFirst,
+      contactsFetching,
       emailStatusFilter,
       filteredContacts,
       formatDateFR,
       getEmailStatusCellStyle,
       getEmailStatusLabel,
+      groupId,
+      handleRefreshContacts,
       onRequestDelete,
       openColumnSearch,
       openContactInfos,
@@ -1295,7 +1331,7 @@ export default function ContactsScreen() {
               pageSize={10}
               clipboardEnabled={clipboardEnabled}
               onCellUpdate={async ({ row }) => {
-                await updateContact({
+                await updateContactInline({
                   id: row.id,
                   data: buildUpdatePayload(row),
                 }).unwrap();
@@ -1431,6 +1467,22 @@ const styles = StyleSheet.create({
     minHeight: 16,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  actionsHeader: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionsHeaderBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionsHeaderBtnDisabled: {
+    opacity: 0.55,
   },
 
   rowActions: {

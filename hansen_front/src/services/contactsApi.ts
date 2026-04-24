@@ -207,6 +207,17 @@ export const contactsApi = createApi({
       ],
     }),
 
+    updateContactInline: builder.mutation<
+      Contact,
+      { id: string; data: UpdateContactDto }
+    >({
+      query: ({ id, data }) => ({
+        url: `/contacts/${id}`,
+        method: "PATCH",
+        body: sanitizeContactPayload(data),
+      }),
+    }),
+
     deleteContact: builder.mutation<Contact, { id: string }>({
       query: ({ id }) => ({
         url: `/contacts/${id}`,
@@ -256,6 +267,7 @@ export const {
   useGetContactByIdQuery,
   useCreateContactMutation,
   useUpdateContactMutation,
+  useUpdateContactInlineMutation,
   useDeleteContactMutation,
   useBulkDeleteContactsMutation,
   useBulkUpdateEmailsMutation,
