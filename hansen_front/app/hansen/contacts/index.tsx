@@ -40,6 +40,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -47,6 +48,24 @@ type PanelState =
   | { type: "create" }
   | { type: "edit"; contactId: string }
   | null;
+
+type ContactSearchField =
+  | "lastName"
+  | "firstName"
+  | "email"
+  | "function"
+  | "emailStatusReason"
+  | "phoneNumberFirst"
+  | "lastEmail";
+
+type ColumnSearchState = Partial<Record<ContactSearchField, string>>;
+
+type SearchModalState = {
+  open: boolean;
+  field: ContactSearchField | null;
+  title: string;
+  value: string;
+};
 
 function confirmDelete(params: {
   title: string;
@@ -78,6 +97,92 @@ function showInfo(params: { title: string; message: string }) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+function normalizeSearchText(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function getContactFieldSearchValue(
+  contact: Contact,
+  field: ContactSearchField
+): string {
+  switch (field) {
+    case "lastName":
+      return contact.lastName ?? "";
+    case "firstName":
+      return contact.firstName ?? "";
+    case "email":
+      return contact.email ?? "";
+    case "function":
+      return contact.function ?? "";
+    case "emailStatusReason":
+      return contact.emailStatusReason ?? "";
+    case "phoneNumberFirst":
+      return contact.phoneNumber?.[0] ?? "";
+    case "lastEmail":
+      return contact.lastEmail ?? "";
+    default:
+      return "";
+  }
+}
+
+function HeaderSearchButton(props: {
+  title: string;
+  active: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  const { title, active, onPress, disabled = false } = props;
+
+  return (
+    <View style={styles.headerSearchAnchor}>
+      <Pressable
+        onPress={onPress}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Rechercher dans la colonne ${title}`}
+        style={({ pressed }) => [
+          styles.headerSearchBtn,
+          active && styles.headerSearchBtnActive,
+          (pressed || disabled) && styles.headerSearchBtnDim,
+        ]}
+      >
+        <Ionicons
+          name={active ? "search" : "search-outline"}
+          size={14}
+          color={active ? "#1F536E" : "#475569"}
+        />
+        {active ? <View style={styles.headerSearchDot} /> : null}
+      </Pressable>
+    </View>
+  );
+}
+
+function SearchableTextHeader(props: {
+  title: string;
+  active: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <View style={styles.searchableHeader}>
+      <Text style={styles.searchableHeaderText} numberOfLines={1}>
+        {props.title}
+      </Text>
+
+      <HeaderSearchButton
+        title={props.title}
+        active={props.active}
+        onPress={props.onPress}
+        disabled={props.disabled}
+      />
+    </View>
+  );
 }
 
 function StatusHeaderFilterButton(props: {
@@ -229,6 +334,157 @@ function StatusHeaderFilterButton(props: {
   );
 }
 
+function EmailStatusHeaderFilterButton(props: {
+  value: ContactEmailStatus | null;
+  onChange: (value: ContactEmailStatus | null) => void;
+  disabled?: boolean;
+}) {
+  const { value, onChange, disabled = false } = props;
+
+  const anchorRef = useRef<View>(null);
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  const isActive = value !== null;
+
+  const items = useMemo(
+    () => [
+      { key: "ALL", label: "Tous", value: null as ContactEmailStatus | null },
+      ...Object.values(ContactEmailStatus).map((status) => ({
+        key: status,
+        label: CONTACT_EMAIL_STATUS_LABEL[status],
+        value: status,
+      })),
+    ],
+    []
+  );
+
+  const openMenu = useCallback(() => {
+    if (disabled) return;
+
+    anchorRef.current?.measureInWindow((x, y, width, height) => {
+      setAnchor({ x, y, width, height });
+      setOpen(true);
+    });
+  }, [disabled]);
+
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+  }, []);
+
+  const onSelect = useCallback(
+    (next: ContactEmailStatus | null) => {
+      onChange(next);
+      closeMenu();
+    },
+    [closeMenu, onChange]
+  );
+
+  const screenWidth = Dimensions.get("window").width;
+  const MENU_WIDTH = 240;
+
+  const menuLeft = anchor
+    ? clamp(
+        anchor.x + anchor.width - MENU_WIDTH,
+        8,
+        screenWidth - MENU_WIDTH - 8
+      )
+    : 8;
+
+  const menuTop = anchor ? anchor.y + anchor.height + 6 : 8;
+
+  const currentLabel = value ? CONTACT_EMAIL_STATUS_LABEL[value] : "Tous";
+
+  return (
+    <View ref={anchorRef} collapsable={false} style={styles.statusFilterAnchor}>
+      <Pressable
+        onPress={openMenu}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Filtrer la liste par état email. Valeur actuelle : ${currentLabel}`}
+        style={({ pressed }) => [
+          styles.statusFilterBtn,
+          isActive && styles.statusFilterBtnActive,
+          (pressed || disabled) && styles.statusFilterBtnDim,
+        ]}
+      >
+        <Ionicons
+          name={isActive ? "funnel" : "funnel-outline"}
+          size={14}
+          color={isActive ? "#1F536E" : "#475569"}
+        />
+        {isActive ? <View style={styles.statusFilterDot} /> : null}
+      </Pressable>
+
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={closeMenu}
+      >
+        <View style={styles.menuOverlayRoot}>
+          <Pressable style={styles.menuOverlayBackdrop} onPress={closeMenu} />
+
+          <View
+            style={[
+              styles.statusFilterMenu,
+              {
+                width: MENU_WIDTH,
+                left: menuLeft,
+                top: menuTop,
+              },
+            ]}
+          >
+            <Text style={styles.statusFilterMenuTitle}>
+              {"Filtrer l'état email"}
+            </Text>
+            <Text style={styles.statusFilterMenuSubtitle}>
+              Valeur actuelle : {currentLabel}
+            </Text>
+
+            <View style={styles.statusFilterMenuDivider} />
+
+            {items.map((item) => {
+              const selected =
+                item.value === null ? value === null : value === item.value;
+
+              return (
+                <Pressable
+                  key={item.key}
+                  onPress={() => onSelect(item.value)}
+                  style={({ pressed }) => [
+                    styles.statusFilterMenuItem,
+                    selected && styles.statusFilterMenuItemSelected,
+                    pressed && styles.statusFilterMenuItemPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusFilterMenuItemText,
+                      selected && styles.statusFilterMenuItemTextSelected,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+
+                  {selected ? (
+                    <Ionicons name="checkmark" size={16} color="#1F536E" />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
 function buildBulkUpdateSummary(result: BulkUpdateEmailsResult) {
   const lines = [
     `Demandés : ${result.requestedCount}`,
@@ -236,22 +492,12 @@ function buildBulkUpdateSummary(result: BulkUpdateEmailsResult) {
     `Mis à jour : ${result.updatedCount}`,
   ];
 
-  if (result.unchangedCount > 0) {
+  if (result.unchangedCount > 0)
     lines.push(`Inchangés : ${result.unchangedCount}`);
-  }
-
-  if (result.invalidCount > 0) {
-    lines.push(`Invalides : ${result.invalidCount}`);
-  }
-
-  if (result.conflictCount > 0) {
+  if (result.invalidCount > 0) lines.push(`Invalides : ${result.invalidCount}`);
+  if (result.conflictCount > 0)
     lines.push(`Conflits : ${result.conflictCount}`);
-  }
-
-  if (result.errorCount > 0) {
-    lines.push(`Erreurs : ${result.errorCount}`);
-  }
-
+  if (result.errorCount > 0) lines.push(`Erreurs : ${result.errorCount}`);
   if (result.notFoundIds.length > 0) {
     lines.push(`Introuvables : ${result.notFoundIds.length}`);
   }
@@ -288,6 +534,15 @@ export default function ContactsScreen() {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [subGroupId, setSubGroupId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<Status | null>(null);
+  const [emailStatusFilter, setEmailStatusFilter] =
+    useState<ContactEmailStatus | null>(null);
+  const [columnSearch, setColumnSearch] = useState<ColumnSearchState>({});
+  const [searchModal, setSearchModal] = useState<SearchModalState>({
+    open: false,
+    field: null,
+    title: "",
+    value: "",
+  });
   const [panel, setPanel] = useState<PanelState>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
@@ -300,6 +555,7 @@ export default function ContactsScreen() {
       setGroupId(groups[0].id);
       setSubGroupId(null);
       setStatusFilter(null);
+      setEmailStatusFilter(null);
     }
   }, [groups, groupId]);
 
@@ -332,18 +588,102 @@ export default function ContactsScreen() {
     groupId ? { groupId } : (undefined as any)
   );
 
+  const setColumnSearchValue = useCallback(
+    (field: ContactSearchField, value: string) => {
+      setColumnSearch((prev) => ({
+        ...prev,
+        [field]: value,
+      }));
+    },
+    []
+  );
+
+  const openColumnSearch = useCallback(
+    (field: ContactSearchField, title: string) => {
+      setSearchModal({
+        open: true,
+        field,
+        title,
+        value: columnSearch[field] ?? "",
+      });
+    },
+    [columnSearch]
+  );
+
+  const closeColumnSearch = useCallback(() => {
+    setSearchModal((prev) => ({
+      ...prev,
+      open: false,
+    }));
+  }, []);
+
+  const updateSearchModalValue = useCallback(
+    (nextValue: string) => {
+      setSearchModal((prev) => ({
+        ...prev,
+        value: nextValue,
+      }));
+
+      setColumnSearch((prev) => {
+        const field = searchModal.field;
+        if (!field) return prev;
+        return {
+          ...prev,
+          [field]: nextValue,
+        };
+      });
+    },
+    [searchModal.field]
+  );
+
+  const clearActiveSearch = useCallback(() => {
+    if (!searchModal.field) return;
+
+    setColumnSearch((prev) => ({
+      ...prev,
+      [searchModal.field as ContactSearchField]: "",
+    }));
+
+    setSearchModal((prev) => ({
+      ...prev,
+      value: "",
+    }));
+  }, [searchModal.field]);
+
   const filteredContacts = useMemo(() => {
     let list = contacts;
 
     if (subGroupId) list = list.filter((c) => c.subGroupId === subGroupId);
     if (statusFilter) list = list.filter((c) => c.status === statusFilter);
+    if (emailStatusFilter) {
+      list = list.filter((c) => c.emailStatus === emailStatusFilter);
+    }
+
+    const activeSearchEntries = Object.entries(columnSearch).filter(
+      ([, value]) => String(value ?? "").trim().length > 0
+    ) as [ContactSearchField, string][];
+
+    if (activeSearchEntries.length > 0) {
+      list = list.filter((contact) =>
+        activeSearchEntries.every(([field, rawQuery]) => {
+          const query = normalizeSearchText(rawQuery);
+          if (!query) return true;
+
+          const value = normalizeSearchText(
+            getContactFieldSearchValue(contact, field)
+          );
+
+          return value.includes(query);
+        })
+      );
+    }
 
     return list;
-  }, [contacts, subGroupId, statusFilter]);
+  }, [contacts, subGroupId, statusFilter, emailStatusFilter, columnSearch]);
 
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [groupId, subGroupId, statusFilter]);
+  }, [groupId, subGroupId, statusFilter, emailStatusFilter, columnSearch]);
 
   useEffect(() => {
     const existing = new Set(filteredContacts.map((c) => c.id));
@@ -600,18 +940,70 @@ export default function ContactsScreen() {
         },
       },
 
-      { accessorKey: "lastName", header: "Nom", meta: { editable: true } },
-      { accessorKey: "firstName", header: "Prénom", meta: { editable: true } },
+      {
+        accessorKey: "lastName",
+        header: () => (
+          <SearchableTextHeader
+            title="Nom"
+            active={(columnSearch.lastName ?? "").trim().length > 0}
+            onPress={() => openColumnSearch("lastName", "Nom")}
+            disabled={actionsBusy}
+          />
+        ),
+        meta: { editable: true },
+      },
+      {
+        accessorKey: "firstName",
+        header: () => (
+          <SearchableTextHeader
+            title="Prénom"
+            active={(columnSearch.firstName ?? "").trim().length > 0}
+            onPress={() => openColumnSearch("firstName", "Prénom")}
+            disabled={actionsBusy}
+          />
+        ),
+        meta: { editable: true },
+      },
       {
         accessorKey: "email",
-        header: "Email",
+        header: () => (
+          <SearchableTextHeader
+            title="Email"
+            active={(columnSearch.email ?? "").trim().length > 0}
+            onPress={() => openColumnSearch("email", "Email")}
+            disabled={actionsBusy}
+          />
+        ),
         meta: { editable: true, inputType: "email" },
       },
-      { accessorKey: "function", header: "Fonction", meta: { editable: true } },
+      {
+        accessorKey: "function",
+        header: () => (
+          <SearchableTextHeader
+            title="Fonction"
+            active={(columnSearch.function ?? "").trim().length > 0}
+            onPress={() => openColumnSearch("function", "Fonction")}
+            disabled={actionsBusy}
+          />
+        ),
+        meta: { editable: true },
+      },
 
       {
         accessorKey: "emailStatus",
-        header: "État email",
+        header: () => (
+          <View style={styles.statusHeader}>
+            <Text style={styles.statusHeaderText} numberOfLines={1}>
+              État email
+            </Text>
+
+            <EmailStatusHeaderFilterButton
+              value={emailStatusFilter}
+              onChange={setEmailStatusFilter}
+              disabled={actionsBusy}
+            />
+          </View>
+        ),
         enableSorting: false,
         meta: {
           width: 170,
@@ -626,7 +1018,14 @@ export default function ContactsScreen() {
       },
       {
         accessorKey: "emailStatusReason",
-        header: "Raison",
+        header: () => (
+          <SearchableTextHeader
+            title="Raison"
+            active={(columnSearch.emailStatusReason ?? "").trim().length > 0}
+            onPress={() => openColumnSearch("emailStatusReason", "Raison")}
+            disabled={actionsBusy}
+          />
+        ),
         enableSorting: false,
         meta: {
           width: 220,
@@ -675,7 +1074,14 @@ export default function ContactsScreen() {
 
       {
         id: "phoneNumberFirst",
-        header: "Téléphone",
+        header: () => (
+          <SearchableTextHeader
+            title="Téléphone"
+            active={(columnSearch.phoneNumberFirst ?? "").trim().length > 0}
+            onPress={() => openColumnSearch("phoneNumberFirst", "Téléphone")}
+            disabled={actionsBusy}
+          />
+        ),
         accessorFn: (row) => row.phoneNumber?.[0] ?? "",
         cell: (info) => String(info.getValue() ?? ""),
         meta: {
@@ -688,7 +1094,14 @@ export default function ContactsScreen() {
       },
       {
         accessorKey: "lastEmail",
-        header: "Dernier Email",
+        header: () => (
+          <SearchableTextHeader
+            title="Dernier Email"
+            active={(columnSearch.lastEmail ?? "").trim().length > 0}
+            onPress={() => openColumnSearch("lastEmail", "Dernier Email")}
+            disabled={actionsBusy}
+          />
+        ),
         meta: { editable: false },
       },
       {
@@ -744,10 +1157,19 @@ export default function ContactsScreen() {
     ],
     [
       actionsBusy,
+      columnSearch.email,
+      columnSearch.emailStatusReason,
+      columnSearch.firstName,
+      columnSearch.function,
+      columnSearch.lastEmail,
+      columnSearch.lastName,
+      columnSearch.phoneNumberFirst,
+      emailStatusFilter,
       formatDateFR,
       getEmailStatusCellStyle,
       getEmailStatusLabel,
       onRequestDelete,
+      openColumnSearch,
       openContactInfos,
       selectedIds,
       setSelectedForMany,
@@ -775,6 +1197,7 @@ export default function ContactsScreen() {
             setGroupId(id);
             setSubGroupId(null);
             setStatusFilter(null);
+            setEmailStatusFilter(null);
           }}
           searchable
           searchPlaceholder="Rechercher un groupe..."
@@ -845,6 +1268,58 @@ export default function ContactsScreen() {
           </View>
         </View>
       </View>
+
+      <Modal
+        visible={searchModal.open}
+        transparent
+        animationType="fade"
+        onRequestClose={closeColumnSearch}
+      >
+        <View style={styles.menuOverlayRoot}>
+          <Pressable
+            style={styles.menuOverlayBackdrop}
+            onPress={closeColumnSearch}
+          />
+
+          <View style={styles.headerSearchMenuCentered}>
+            <Text style={styles.headerSearchMenuTitle}>
+              Rechercher : {searchModal.title}
+            </Text>
+
+            <TextInput
+              value={searchModal.value}
+              onChangeText={updateSearchModalValue}
+              autoFocus
+              placeholder="Contient..."
+              style={styles.headerSearchInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <View style={styles.headerSearchActions}>
+              <Pressable
+                onPress={clearActiveSearch}
+                style={({ pressed }) => [
+                  styles.headerSearchSecondaryBtn,
+                  pressed && styles.btnPressed,
+                ]}
+              >
+                <Text style={styles.headerSearchSecondaryBtnText}>Effacer</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={closeColumnSearch}
+                style={({ pressed }) => [
+                  styles.headerSearchPrimaryBtn,
+                  pressed && styles.primaryBtnPressed,
+                ]}
+              >
+                <Text style={styles.headerSearchPrimaryBtnText}>Fermer</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -896,6 +1371,117 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 2,
+  },
+
+  searchableHeader: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  searchableHeaderText: {
+    fontSize: 12,
+    fontWeight: "800",
+    flexShrink: 1,
+  },
+
+  headerSearchAnchor: {
+    marginLeft: "auto",
+  },
+  headerSearchBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "white",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  headerSearchBtnActive: {
+    borderColor: "#93C5FD",
+    backgroundColor: "#EFF6FF",
+  },
+  headerSearchBtnDim: {
+    opacity: 0.7,
+  },
+  headerSearchDot: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#1D4ED8",
+  },
+
+  headerSearchMenuCentered: {
+    alignSelf: "center",
+    marginTop: 120,
+    width: 320,
+    maxWidth: "92%",
+    backgroundColor: "white",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+    gap: 10,
+  },
+  headerSearchMenuTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  headerSearchInput: {
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "white",
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0F172A",
+  },
+  headerSearchActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  headerSearchSecondaryBtn: {
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "white",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerSearchSecondaryBtnText: {
+    color: "#0F172A",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  headerSearchPrimaryBtn: {
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#1F536E",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerSearchPrimaryBtnText: {
+    color: "white",
+    fontWeight: "800",
+    fontSize: 12,
   },
 
   statusHeader: {
@@ -1025,5 +1611,12 @@ const styles = StyleSheet.create({
   cellText: {
     fontSize: 13,
     fontWeight: "600",
+  },
+
+  btnPressed: {
+    opacity: 0.8,
+  },
+  primaryBtnPressed: {
+    opacity: 0.85,
   },
 });
