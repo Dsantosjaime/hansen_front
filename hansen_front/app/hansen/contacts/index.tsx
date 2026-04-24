@@ -875,40 +875,86 @@ export default function ContactsScreen() {
         header: ({ table }: any) => {
           const pageRows = table.getPaginationRowModel().rows as any[];
           const pageIds = pageRows.map((r) => r.original.id as string);
+          const filteredIds = filteredContacts.map((c) => c.id);
 
-          const allSelected =
+          const allPageSelected =
             pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
-          const someSelected = pageIds.some((id) => selectedIds.has(id));
+          const somePageSelected = pageIds.some((id) => selectedIds.has(id));
 
-          const iconName = allSelected
+          const allFilteredSelected =
+            filteredIds.length > 0 &&
+            filteredIds.every((id) => selectedIds.has(id));
+          const someFilteredSelected = filteredIds.some((id) =>
+            selectedIds.has(id)
+          );
+
+          const pageIconName = allPageSelected
             ? "checkbox"
-            : someSelected
+            : somePageSelected
             ? "remove-circle-outline"
             : "square-outline";
 
+          const allIconName = allFilteredSelected ? "layers" : "layers-outline";
+
           return (
-            <Pressable
-              onPress={() => {
-                if (!pageIds.length) return;
-                setSelectedForMany(pageIds, !allSelected);
-              }}
-              hitSlop={8}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: allSelected }}
-              accessibilityLabel="Sélectionner tous les contacts de la page"
-              style={styles.checkboxHeader}
-              disabled={actionsBusy}
-            >
-              <Ionicons
-                name={iconName as any}
-                size={16}
-                color={allSelected ? "#1F536E" : "#64748B"}
-              />
-            </Pressable>
+            <View style={styles.checkboxHeaderGroup}>
+              <Pressable
+                onPress={() => {
+                  if (!pageIds.length) return;
+                  setSelectedForMany(pageIds, !allPageSelected);
+                }}
+                hitSlop={8}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: allPageSelected }}
+                accessibilityLabel="Sélectionner tous les contacts de la page courante"
+                style={({ pressed }) => [
+                  styles.checkboxHeaderBtn,
+                  allPageSelected && styles.checkboxHeaderBtnActive,
+                  pressed && { opacity: 0.75 },
+                ]}
+                disabled={actionsBusy}
+              >
+                <Ionicons
+                  name={pageIconName as any}
+                  size={16}
+                  color={
+                    allPageSelected || somePageSelected ? "#1F536E" : "#64748B"
+                  }
+                />
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  if (!filteredIds.length) return;
+                  setSelectedForMany(filteredIds, !allFilteredSelected);
+                }}
+                hitSlop={8}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: allFilteredSelected }}
+                accessibilityLabel="Sélectionner tous les contacts actuellement affichés par la grille"
+                style={({ pressed }) => [
+                  styles.checkboxHeaderBtn,
+                  (allFilteredSelected || someFilteredSelected) &&
+                    styles.checkboxHeaderBtnActive,
+                  pressed && { opacity: 0.75 },
+                ]}
+                disabled={actionsBusy || filteredIds.length === 0}
+              >
+                <Ionicons
+                  name={allIconName as any}
+                  size={15}
+                  color={
+                    allFilteredSelected || someFilteredSelected
+                      ? "#1F536E"
+                      : "#64748B"
+                  }
+                />
+              </Pressable>
+            </View>
           );
         },
         enableSorting: false,
-        meta: { width: 32 },
+        meta: { width: 58 },
         cell: ({ row }) => {
           const id = row.original.id;
           const checked = selectedIds.has(id);
@@ -1165,6 +1211,7 @@ export default function ContactsScreen() {
       columnSearch.lastName,
       columnSearch.phoneNumberFirst,
       emailStatusFilter,
+      filteredContacts,
       formatDateFR,
       getEmailStatusCellStyle,
       getEmailStatusLabel,
@@ -1357,6 +1404,27 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
+  },
+  checkboxHeaderGroup: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  checkboxHeaderBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "white",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxHeaderBtnActive: {
+    borderColor: "#93C5FD",
+    backgroundColor: "#EFF6FF",
   },
   checkboxCell: {
     width: "100%",
