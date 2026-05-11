@@ -9,10 +9,13 @@ export type User = {
   email: string;
   name: string;
   roleId?: string | null;
+  phoneFixed: string | null;
+  phoneMobile: string | null;
+  jobTitle: string | null;
 
-  role: {
+  role?: {
     id: string;
     name: string;
     permissions: Permission[];
-  };
+  } | null;
 };

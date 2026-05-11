@@ -45,7 +45,6 @@ type UploadedAttachment = {
 
 function confirmAction(params: { title: string; message: string }) {
   if (Platform.OS === "web") {
-    // eslint-disable-next-line no-alert
     return Promise.resolve(
       window.confirm(`${params.title}\n\n${params.message}`)
     );
@@ -394,6 +393,12 @@ async function pickAttachmentWeb(): Promise<DocumentPicker.DocumentPickerAsset |
   const res = await DocumentPicker.getDocumentAsync({
     multiple: false,
     copyToCacheDirectory: false,
+    type: [
+      "application/pdf",
+      "image/*",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ],
   });
 
   if (res.canceled) return null;

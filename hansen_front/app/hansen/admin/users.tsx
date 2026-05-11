@@ -10,6 +10,7 @@ import { useThemeColor } from "@/hooks/use-theme-color";
 
 import { useGetRolesQuery } from "@/services/rolesApi";
 import {
+  ModifyUserInput,
   useCreateUserMutation,
   useDeleteUserMutation,
   useGetUsersQuery,
@@ -28,6 +29,24 @@ type ConfirmState =
       cancelText?: string;
       onConfirm: () => void | Promise<void>;
     };
+
+// Mapping colonne grid → champ ModifyUserInput
+// Permet d'envoyer un patch minimal (uniquement la cellule modifiée)
+const COLUMN_TO_FIELD: Record<string, keyof ModifyUserInput> = {
+  name: "name",
+  email: "email",
+  jobTitle: "jobTitle",
+  phoneFixed: "phoneFixed",
+  phoneMobile: "phoneMobile",
+  role: "roleId",
+};
+
+// Colonnes dont la valeur vide doit devenir null (champs nullables en BDD)
+const NULLABLE_FIELDS = new Set<keyof ModifyUserInput>([
+  "jobTitle",
+  "phoneFixed",
+  "phoneMobile",
+]);
 
 export default function UsersScreen() {
   const backgroundLight = useThemeColor({}, "backgroundLight");
@@ -64,9 +83,28 @@ export default function UsersScreen() {
     [closeConfirm, deleteUser]
   );
 
+  // PATCH minimal : envoie uniquement la cellule modifiée
   const handleModifyUser = useCallback(
     async (payload: CellUpdatePayload<User>) => {
-      await modifyUser(payload.row).unwrap?.();
+      const { row, columnId, value } = payload;
+      const field = COLUMN_TO_FIELD[columnId];
+      if (!field) return;
+
+      const raw = typeof value === "string" ? value.trim() : value ?? "";
+      const isEmpty = raw === "" || raw === null || raw === undefined;
+
+      // Champs nullables : vide → null (efface en BDD)
+      // Autres champs : on n'envoie pas si vide pour éviter d'écraser une valeur requise
+      let nextValue: string | null;
+      if (NULLABLE_FIELDS.has(field)) {
+        nextValue = isEmpty ? null : String(raw);
+      } else {
+        if (isEmpty) return; // ne rien envoyer pour les champs requis vidés
+        nextValue = String(raw);
+      }
+
+      const patch: ModifyUserInput = { id: row.id, [field]: nextValue };
+      await modifyUser(patch).unwrap?.();
     },
     [modifyUser]
   );
@@ -86,6 +124,9 @@ export default function UsersScreen() {
   const [draftName, setDraftName] = useState("");
   const [draftRoleId, setDraftRoleId] = useState<string | null>(null);
   const [draftPswd, setDraftPwsd] = useState("");
+  const [draftJobTitle, setDraftJobTitle] = useState("");
+  const [draftPhoneFixed, setDraftPhoneFixed] = useState("");
+  const [draftPhoneMobile, setDraftPhoneMobile] = useState("");
 
   const canSave = useMemo(() => {
     return (
@@ -97,21 +138,25 @@ export default function UsersScreen() {
     );
   }, [draftEmail, draftName, draftRoleId, draftPswd]);
 
-  const startCreate = useCallback(() => {
-    setIsCreating(true);
+  const resetDraft = useCallback(() => {
     setDraftEmail("");
     setDraftName("");
     setDraftRoleId(null);
     setDraftPwsd("");
+    setDraftJobTitle("");
+    setDraftPhoneFixed("");
+    setDraftPhoneMobile("");
   }, []);
+
+  const startCreate = useCallback(() => {
+    setIsCreating(true);
+    resetDraft();
+  }, [resetDraft]);
 
   const cancelCreate = useCallback(() => {
     setIsCreating(false);
-    setDraftEmail("");
-    setDraftName("");
-    setDraftRoleId(null);
-    setDraftPwsd("");
-  }, []);
+    resetDraft();
+  }, [resetDraft]);
 
   const saveCreate = useCallback(async () => {
     if (!canSave) return;
@@ -121,14 +166,27 @@ export default function UsersScreen() {
       name: draftName.trim(),
       roleId: draftRoleId!,
       temporaryPassword: draftPswd.trim(),
+      ...(draftJobTitle.trim() ? { jobTitle: draftJobTitle.trim() } : {}),
+      ...(draftPhoneFixed.trim() ? { phoneFixed: draftPhoneFixed.trim() } : {}),
+      ...(draftPhoneMobile.trim()
+        ? { phoneMobile: draftPhoneMobile.trim() }
+        : {}),
     }).unwrap?.();
 
     setIsCreating(false);
-    setDraftEmail("");
-    setDraftName("");
-    setDraftRoleId(null);
-    setDraftPwsd("");
-  }, [addUser, canSave, draftEmail, draftName, draftPswd, draftRoleId]);
+    resetDraft();
+  }, [
+    addUser,
+    canSave,
+    draftEmail,
+    draftName,
+    draftPswd,
+    draftRoleId,
+    draftJobTitle,
+    draftPhoneFixed,
+    draftPhoneMobile,
+    resetDraft,
+  ]);
 
   const columns = useMemo<GridColumnDef<User>[]>(
     () => [
@@ -139,6 +197,21 @@ export default function UsersScreen() {
         meta: { editable: true, inputType: "email" },
       },
       {
+        accessorKey: "jobTitle",
+        header: "Poste",
+        meta: { editable: true },
+      },
+      {
+        accessorKey: "phoneFixed",
+        header: "Tél. fixe",
+        meta: { editable: true, inputType: "tel" },
+      },
+      {
+        accessorKey: "phoneMobile",
+        header: "Tél. mobile",
+        meta: { editable: true, inputType: "tel" },
+      },
+      {
         id: "role",
         header: "Role",
         accessorFn: (row) => row.role?.id ?? "",
@@ -147,13 +220,17 @@ export default function UsersScreen() {
           editable: true,
           editor: "select",
           selectOptions: roleOptions,
-          updateValue: (row: User, value: unknown) => {
+          // Préserve permissions et autres champs internes du role
+          updateValue: (row: User, value: unknown): User => {
             const roleId = String(value ?? "");
-            const roleName =
+            const newRoleLabel =
               roleOptions.find((o) => o.value === roleId)?.label ?? "";
             return {
               ...row,
-              role: { id: roleId, name: roleName },
+              roleId,
+              role: row.role
+                ? { ...row.role, id: roleId, name: newRoleLabel }
+                : row.role,
             };
           },
         },
@@ -226,7 +303,7 @@ export default function UsersScreen() {
             <TextInput
               value={draftEmail}
               onChangeText={setDraftEmail}
-              placeholder="Email"
+              placeholder="Email *"
               placeholderTextColor={textDark}
               autoCapitalize="none"
               keyboardType="email-address"
@@ -243,7 +320,7 @@ export default function UsersScreen() {
             <TextInput
               value={draftName}
               onChangeText={setDraftName}
-              placeholder="Nom"
+              placeholder="Nom *"
               placeholderTextColor={textDark}
               style={[
                 styles.input,
@@ -258,7 +335,7 @@ export default function UsersScreen() {
             <TextInput
               value={draftPswd}
               onChangeText={setDraftPwsd}
-              placeholder="Mot de passe temporaire"
+              placeholder="Mot de passe temporaire *"
               placeholderTextColor={textDark}
               autoCapitalize="none"
               autoCorrect={false}
@@ -274,8 +351,55 @@ export default function UsersScreen() {
               ]}
             />
 
+            <TextInput
+              value={draftJobTitle}
+              onChangeText={setDraftJobTitle}
+              placeholder="Poste"
+              placeholderTextColor={textDark}
+              style={[
+                styles.input,
+                {
+                  borderColor: border,
+                  color: textDark,
+                  backgroundColor: "white",
+                },
+              ]}
+            />
+
+            <TextInput
+              value={draftPhoneFixed}
+              onChangeText={setDraftPhoneFixed}
+              placeholder="Tél. fixe"
+              placeholderTextColor={textDark}
+              keyboardType="phone-pad"
+              style={[
+                styles.input,
+                {
+                  borderColor: border,
+                  color: textDark,
+                  backgroundColor: "white",
+                },
+              ]}
+            />
+
+            <TextInput
+              value={draftPhoneMobile}
+              onChangeText={setDraftPhoneMobile}
+              placeholder="Tél. mobile"
+              placeholderTextColor={textDark}
+              keyboardType="phone-pad"
+              style={[
+                styles.input,
+                {
+                  borderColor: border,
+                  color: textDark,
+                  backgroundColor: "white",
+                },
+              ]}
+            />
+
             <Select<string>
-              label="Role"
+              label="Role *"
               value={draftRoleId}
               options={roleOptions}
               onChange={(id) => setDraftRoleId(id)}
@@ -329,6 +453,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     gap: 12,
     marginBottom: 12,
+    flexWrap: "wrap",
   },
   addUserBtn: {
     height: 42,
@@ -347,9 +472,10 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     gap: 12,
     minWidth: 320,
+    flexWrap: "wrap",
   },
   input: {
     height: 42,
@@ -357,7 +483,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 13,
     fontWeight: "700",
-    minWidth: 220,
+    minWidth: 180,
   },
   saveBtn: {
     height: 42,
