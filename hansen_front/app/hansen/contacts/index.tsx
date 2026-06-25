@@ -1043,7 +1043,7 @@ export default function ContactsScreen() {
             disabled={actionsBusy}
           />
         ),
-        meta: { editable: true },
+        meta: { editable: true, width: 250 },
       },
 
       {
