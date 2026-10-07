@@ -99,6 +99,19 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+// lastContact est stocké en JJ/MM/AAAA (envois de campagne) : new Date() le
+// lirait comme MM/JJ/AAAA, on le découpe donc nous-mêmes.
+const FR_DATE_RE = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+
+function parseContactDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const s = String(value).trim();
+  const fr = FR_DATE_RE.exec(s);
+  const d = fr ? new Date(+fr[3], +fr[2] - 1, +fr[1]) : new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function normalizeSearchText(value: unknown) {
   return String(value ?? "")
     .toLowerCase()
@@ -724,9 +737,8 @@ export default function ContactsScreen() {
   }, []);
 
   const formatDateFR = useCallback((value: unknown) => {
-    if (!value) return "";
-    const d = value instanceof Date ? value : new Date(String(value));
-    if (Number.isNaN(d.getTime())) return "";
+    const d = parseContactDate(value);
+    if (!d) return "";
     return new Intl.DateTimeFormat("fr-FR", {
       day: "2-digit",
       month: "2-digit",
@@ -1165,6 +1177,9 @@ export default function ContactsScreen() {
         accessorKey: "lastContact",
         header: "Date de contact",
         cell: (info) => formatDateFR(info.getValue()),
+        sortingFn: (a, b, columnId) =>
+          (parseContactDate(a.getValue(columnId))?.getTime() ?? 0) -
+          (parseContactDate(b.getValue(columnId))?.getTime() ?? 0),
       },
       {
         id: "actions",
